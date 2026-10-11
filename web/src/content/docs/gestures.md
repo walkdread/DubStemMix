@@ -48,7 +48,7 @@ Send a little of the drums into the reverb first, so the spring also rings with 
 
 <kbd>R</kbd>, or **REWIND**.
 
-The selector's rewind: the tape brakes on the whole sound (the echoes slow down with it), the tune goes back to the top and plays again.
+The selector's rewind: the tape brakes on the whole sound (the echoes slow down with it, and stop with it), the tune goes back to the top and plays again, clean: no echo left over from before the brake.
 
 Between two tunes of a setlist, R pulls up **into the next one**: see [Playing live](../live/).
 
