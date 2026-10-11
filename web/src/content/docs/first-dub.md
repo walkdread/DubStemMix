@@ -148,4 +148,5 @@ Then <kbd>⌘</kbd> <kbd>S</kbd> saves the project (a `.dubstem` file): which st
 | <kbd>R</kbd> | REWIND | pull-up, back to the top |
 | <kbd>Esc</kbd> | | panic: empty all the effects |
 | <kbd>⌘</kbd> <kbd>R</kbd> | REC | record the master |
+| <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>R</kbd> | Window ▸ Recorded Sessions | tracklists, MP3 export |
 | <kbd>⌘</kbd> <kbd>S</kbd> | SAVE | save the project |

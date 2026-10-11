@@ -81,5 +81,6 @@ Strips 7 and 8 have their own held gestures: hold the button on screen, or MUTE 
 | <kbd>T</kbd> | tap the tempo |
 | <kbd>N</kbd> / <kbd>P</kbd> | next / previous tune of the setlist |
 | <kbd>⌘</kbd> <kbd>R</kbd> | record the master |
+| <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>R</kbd> | recorded sessions: tracklists, MP3 export |
 | <kbd>⌘</kbd> <kbd>S</kbd> | save the project |
 | <kbd>⌘</kbd> <kbd>,</kbd> | settings |
