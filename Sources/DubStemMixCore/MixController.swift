@@ -158,8 +158,8 @@ public final class MixController {
 
     // MARK: Lois de gain
 
-    /// Gain unité à 80 % de la course, environ +5 dB en butée.
-    public static func faderGain(_ position: Double) -> Float { Float(pow(position / 0.8, 2.5)) }
+    /// Unity at the top of the travel: a fader never adds gain, so everything up stays below full scale.
+    public static func faderGain(_ position: Double) -> Float { Float(pow(position, 2.5)) }
     public static func sendGain(_ position: Double) -> Float { Float(position * position) }
 
     // MARK: Console physique

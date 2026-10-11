@@ -96,16 +96,16 @@ final class FakeSurface: ControlSurface {
     func setBankLeds(left: Bool, right: Bool) { bankLeds = (left, right) }
 }
 
-@MainActor @Test func faderLawHasUnityAtEightyPercent() {
-    #expect(abs(MixController.faderGain(0.8) - 1) < 0.0001)
+@MainActor @Test func faderLawNeverGoesAboveUnity() {
+    #expect(MixController.faderGain(1) == 1)
     #expect(MixController.faderGain(0) == 0)
-    #expect(MixController.faderGain(1) > 1.5)
+    #expect(MixController.faderGain(0.8) < 0.6)
 }
 
 @MainActor @Test func muteCutsTheStripAndLightsTheLed() {
     let engine = FakeEngine(), surface = FakeSurface()
     let mix = MixController(engine: engine, surface: surface)
-    #expect(abs(engine.faders[2] - 1) < 0.0001)
+    #expect(abs(engine.faders[2] - MixController.faderGain(0.8)) < 0.0001)
 
     mix.handle(.button(.mute, strip: 2, pressed: true))
     mix.handle(.button(.mute, strip: 2, pressed: false))
@@ -117,7 +117,7 @@ final class FakeSurface: ControlSurface {
     #expect(engine.faders[2] == 0)
 
     mix.handle(.button(.mute, strip: 2, pressed: true))
-    #expect(engine.faders[2] > 1.5)
+    #expect(engine.faders[2] == 1)
     #expect(!surface.muteLeds[2])
 }
 

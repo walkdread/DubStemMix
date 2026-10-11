@@ -87,12 +87,14 @@ Par tranche :
 | Potard haut | Envoi **Delay** |
 | Potard milieu | Envoi **Reverb** |
 | Potard bas | Envoi **Bus 3** (phaser par défaut) |
-| Fader | Volume de la tranche (repère de gain unité) |
+| Fader | Volume de la tranche (en butée : niveau d'origine du stem, jamais de gain ajouté) |
 | MUTE | Mute on/off, LED = état |
 | SOLO maintenu + MUTE | Solo on/off (solo in place ; les retours d'effets restent audibles) |
 | REC ARM (maintenu) | **Dub throw** : la tranche part à fond dans le delay, **prise avant mute et fader** (on peut « lancer » une piste coupée) ; LED allumée pendant le geste |
 
 Fader master : volume général, suivi d'un limiteur de sécurité.
+
+**Niveaux : tout à fond ne sature pas** (décidé le 11/10/2026). En live on pousse les faders sans regarder : tous les faders de stems et le master à fond, sans effet, ne doivent jamais saturer. En butée, un fader rend le niveau d'origine (pas de boost) ; tout à fond rejoue donc le morceau, **6 dB sous son niveau d'origine** (un master récent décodé depuis un MP3 dépasse souvent 0 dB : +2,7 dB mesurés sur « Where We Belong »). À 80 % de la course, un fader est à environ −5 dB. Pour faire ressortir un stem, on baisse les autres ; pour jouer plus fort, on monte la carte son. Vaut pour des stems qui, additionnés, redonnent le morceau (séparation, stems de studio) ; des stems normalisés chacun à fond peuvent dépasser.
 
 **Comportement dub essentiel** : les effets sont sur des bus partagés, donc couper ou baisser une tranche n'interrompt jamais la queue d'écho ou de reverb déjà lancée.
 
@@ -128,7 +130,7 @@ Objectif : un son crédible pour le dub sans aucun plugin tiers.
 - **Dub Delay (tape echo)** : temps libre (ms) ou calé au tempo (1/16 → 1/2, dont 1/8 pointé et 1/4 pointé), changement de temps avec glissement de hauteur façon bande, feedback jusqu'à l'auto-oscillation contrôlée par saturation, filtres passe-haut/passe-bas dans la boucle, wow/flutter, envoi du delay vers la reverb.
 - **Reverb** : plate de Dattorro (entrée mono, sortie stéréo) — decay, damping, predelay, coupe-bas, tone. Un second modèle **ressort** arrive en M7 (§ 11.4).
 - **Phaser type Bi-Phase** — le « gros » phaser du reggae 70/80 : deux phaseurs 6 étages en série, résonance poussée (tenue par une saturation), balayage jusqu'à ± 2,5 octaves, LFO déphasé entre gauche et droite. Réglages : rate, depth, resonance, fréquence centrale, largeur stéréo. **Sa sortie est 100 % déphasée** : l'effet vit sur un bus d'envoi, et c'est sa somme avec le signal direct de la tranche qui creuse les encoches (complètes avec l'envoi à fond et le retour à 0 dB, valeur par défaut).
-- **Master** : limiteur de sécurité transparent. **Désactivable** (décidé le 26/09/2026) : un clic sur « LIMITER ON » sous le fader master → « LIMITER OFF » en rouge, et inversement ; instantané, sans coupure, possible en jouant. Choix mémorisé pour ce Mac (comme la carte son), pas dans le projet. Sans limiteur, rien n'empêche la sortie (et l'enregistrement) de saturer au-dessus de 0 dB : le haut rouge du vu-mètre master sert de témoin.
+- **Master** : limiteur de sécurité transparent. Il n'agit que sur les accidents (retour de delay qui s'emballe, effets poussés) : un mix sans effet passe dessous (voir « Niveaux » au § 5.2). Relâchement de 60 ms, le plus long que permet le limiteur d'Apple (24 ms par défaut, qui suivait la basse et la distordait). **Désactivable** (décidé le 26/09/2026) : un clic sur « LIMITER ON » sous le fader master → « LIMITER OFF » en rouge, et inversement ; instantané, sans coupure, possible en jouant. Choix mémorisé pour ce Mac (comme la carte son), pas dans le projet. Sans limiteur, rien n'empêche la sortie (et l'enregistrement) de saturer au-dessus de 0 dB : le haut rouge du vu-mètre master sert de témoin.
 
 ### 5.5 Slots Audio Unit
 
@@ -236,7 +238,7 @@ Carte son et taille de buffer · dossier d'enregistrement · mode pré/post par 
 
 ### Risques techniques (à lever en premier)
 
-1. **Envois et lissage dans AVAudioEngine** — ✅ **levé au M0**. Les envois passent par les volumes par destination d'un fan-out (`AVAudioMixingDestination`) ; le mixeur d'Apple lisse lui-même chaque changement de volume (~25 ms, mesuré hors ligne, aucun saut). Limites constatées : volumes plafonnés à 1,0 (→ tranches et master travaillent 6 dB sous l'unité, rattrapés par un étage de gain final) ; une tranche sans stem n'a pas de destination d'envoi (→ niveaux mémorisés et réappliqués) ; `nextAvailableInputBus` ignore les fan-out (→ bus attribués explicitement).
+1. **Envois et lissage dans AVAudioEngine** — ✅ **levé au M0**. Les envois passent par les volumes par destination d'un fan-out (`AVAudioMixingDestination`) ; le mixeur d'Apple lisse lui-même chaque changement de volume (~25 ms, mesuré hors ligne, aucun saut). Limites constatées : volumes plafonnés à 1,0 (→ tranches et master travaillent 6 dB sous l'unité ; l'étage de gain final en rend 6 sur 12, d'où la marge de 6 dB quand tout est à fond) ; une tranche sans stem n'a pas de destination d'envoi (→ niveaux mémorisés et réappliqués) ; `nextAvailableInputBus` ignore les fan-out (→ bus attribués explicitement).
 2. **Synchronisation de 8–16 lecteurs** en streaming, boucle et seek calés à l'échantillon — ✅ **levé au M0/M1** (tests hors ligne au sample près : départ, boucle avec stems de longueurs différentes, seek).
 3. **Recâblage à chaud** — tranché au M4 : changer de **morceau** ne coupe pas les queues d'effets (seuls les lecteurs changent) ; changer d'**effet** sur un bus impose d'arrêter le moteur un instant (AVAudioEngine lève une exception interne au 3e recâblage d'un même bus moteur en marche) — acceptable : on ne change pas de plugin au milieu d'un morceau.
 4. **Latence des plugins AU** non compensée par AVAudioEngine : acceptable sur des bus d'effets (100 % wet), à documenter.

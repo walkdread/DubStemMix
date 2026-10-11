@@ -108,11 +108,6 @@ struct Fader: View {
                         .fill(Theme.border)
                         .frame(width: 4)
                         .frame(maxHeight: .infinity)
-                    // Repère de gain unité
-                    Rectangle()
-                        .fill(Theme.textDim)
-                        .frame(width: 26, height: 1.5)
-                        .offset(y: capHeight / 2 + travel * (1 - 0.8))
                     if let ghost {
                         RoundedRectangle(cornerRadius: 3)
                             .stroke(Theme.text, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))

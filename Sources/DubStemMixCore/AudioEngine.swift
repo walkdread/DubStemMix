@@ -320,16 +320,19 @@ public final class AudioEngine: MixEngineControl {
             let varispeed = AVAudioUnitVarispeed()
             varispeed.auAudioUnit.shouldBypassEffect = true
             self.varispeed = varispeed
-            // Master : rattrapage des 12 dB de marge (tranche + master), puis limiteur de sécurité.
+            // Master: gives back the strip and master headroom (12 dB) minus a 6 dB margin, so every fader up
+            // plays the song 6 dB under its original level (loud masters peak above 0 dB), then the safety limiter.
             let makeup = AVAudioUnitEQ(numberOfBands: 1)
             makeup.bands[0].bypass = true
-            makeup.globalGain = 12.04
+            makeup.globalGain = 6.02
             let limiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
                 componentType: kAudioUnitType_Effect,
                 componentSubType: kAudioUnitSubType_PeakLimiter,
                 componentManufacturer: kAudioUnitManufacturer_Apple,
                 componentFlags: 0, componentFlagsMask: 0
             ))
+            // Longest release the unit allows (default 24 ms), so it does not ride the bass waveform.
+            AudioUnitSetParameter(limiter.audioUnit, kLimiterParam_DecayTime, kAudioUnitScope_Global, 0, 0.06, 0)
             for node in [varispeed, makeup, limiter] { engine.attach(node) }
             engine.connect(tail, to: varispeed, format: format)
             engine.connect(varispeed, to: makeup, format: format)
