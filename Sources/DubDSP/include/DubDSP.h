@@ -27,6 +27,7 @@ typedef enum {
     DUB_EFFECT_BUS3 = 9,       // phaser (select 0) or flanger (1), phaser parameter indices; same hand-over.
     DUB_EFFECT_INSERT = 10,    // strip insert: straight through (select 0), sub (1) or auto-wah (2), crossfaded.
                                // Sub parameters at DUB_INSERT_SUB + DUB_SUB_*, wah at DUB_INSERT_WAH + DUB_WAH_*.
+    DUB_EFFECT_LIMITER = 11,   // master safety limiter: 2 ms look-ahead, ceiling −1 dBFS, automatic release
 } DubEffectKind;
 
 // Paramètres, en unités réelles.
@@ -78,6 +79,11 @@ enum {
     DUB_MASTER_TOP = 3,       // above 2.5 kHz
     DUB_MASTER_DUBPLATE = 4,  // 0 … 1 intensity (0 = exact passthrough)
     DUB_MASTER_CRACKLE = 5,   // 0 … 1
+};
+
+enum {
+    DUB_LIMITER_BYPASS = 0,    // ≥ 0.5: the gain glides back to unity (the 2 ms delay stays, so no click)
+    DUB_LIMITER_REDUCTION = 1, // read only: deepest gain reduction in dB since the reader set it back to 0
 };
 
 enum {

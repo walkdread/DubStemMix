@@ -61,5 +61,6 @@ void dub_sub_install(DubEffect *effect);
 void dub_wah_install(DubEffect *effect);
 void dub_flanger_install(DubEffect *effect);
 void dub_switch_install(DubEffect *effect);
+void dub_limiter_install(DubEffect *effect);
 
 #endif

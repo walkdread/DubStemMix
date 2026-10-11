@@ -151,6 +151,11 @@ final class AppModel {
     var updateStatus = UpdateStatus.idle
     var automaticUpdateChecks = UserDefaults.standard.object(forKey: Preference.automaticUpdateChecks) as? Bool ?? true
     var limiterOn = UserDefaults.standard.object(forKey: Preference.limiterOn) as? Bool ?? true
+    /// dB the limiter takes off (limiter on) or the output goes over full scale (limiter off), held 1.5 s.
+    var limiterAmount: Float = 0
+    /// Highest `limiterAmount` since the last reset (click on the readout).
+    var limiterAmountMax: Float = 0
+    private var limiterHoldTicks = 0
 
     // Rafraîchis 30 fois par seconde.
     var isPlaying = false
@@ -200,6 +205,25 @@ final class AppModel {
         midi.allLedsOff()
     }
 
+    /// Limiter on: what it took off since the last tick, as it reports it. Off: how far what reaches it goes
+    /// over full scale, which is what clips.
+    private func trackLimiter(input: Float) {
+        let reduction = engine.takeLimiterReduction()
+        let amount: Float = limiterOn ? reduction : (input > 1 ? 20 * log10(input) : 0)
+        let now = amount < 0.1 ? 0 : amount
+        if now >= limiterAmount {
+            limiterAmount = now
+            limiterHoldTicks = 45
+        } else if limiterHoldTicks > 0 {
+            limiterHoldTicks -= 1
+        } else {
+            limiterAmount = now
+        }
+        limiterAmountMax = max(limiterAmountMax, now)
+    }
+
+    func resetLimiterMax() { limiterAmountMax = 0 }
+
     private func tick() {
         engine.tick()
         isPlaying = engine.isPlaying
@@ -208,9 +232,12 @@ final class AppModel {
         position = engine.position
         duration = engine.duration
         countPlayedTime()
+        var peaks = levels
         for index in levels.indices {
-            levels[index] = max(engine.meters.take(index), levels[index] * 0.85)
+            peaks[index] = engine.meters.take(index)
+            levels[index] = max(peaks[index], levels[index] * 0.85)
         }
+        trackLimiter(input: peaks[AudioEngine.limiterInputMeter])
         dspLoad = max(engine.load.takePeak(), dspLoad * 0.9)
         dropouts = engine.load.overloadCount
         audioStatusCountdown -= 1

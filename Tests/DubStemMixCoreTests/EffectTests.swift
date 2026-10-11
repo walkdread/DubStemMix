@@ -966,3 +966,56 @@ private func setReverb(_ effect: OpaquePointer) {
     #expect(untouched.contains { abs($0) > 0.01 })
     #expect(zip(untouched, patched).allSatisfy { abs($0 - $1) < 0.000_01 }) // not a sample of the echoes lost
 }
+
+// MARK: - Master limiter
+
+private let limiterCeiling: Float = 0.891250938 // −1 dBFS
+private let limiterDelay = 95 // 2 ms at 48 kHz, minus one
+
+private func sine(_ frequency: Float, amplitude: Float, count: Int) -> [Float] {
+    (0..<count).map { amplitude * sin(2 * .pi * frequency * Float($0) / 48_000) }
+}
+
+@Test func limiterNeverGoesOverTheCeiling() {
+    let limiter = dub_effect_create(DUB_EFFECT_LIMITER)!
+    defer { dub_effect_destroy(limiter) }
+    // A loud bass, plus isolated spikes far above it.
+    var input = sine(55, amplitude: 3, count: 96_000)
+    for n in stride(from: 1_000, to: input.count, by: 7_919) { input[n] = n % 2 == 0 ? 12 : -12 }
+    let out = run(limiter, input: input)
+    #expect(out.left.map(abs).max()! <= limiterCeiling + 0.0001)
+    #expect(dub_effect_get(limiter, Int32(DUB_LIMITER_REDUCTION)) > 20)
+}
+
+@Test func limiterLeavesQuietAudioUntouchedOnlyDelayed() {
+    let limiter = dub_effect_create(DUB_EFFECT_LIMITER)!
+    defer { dub_effect_destroy(limiter) }
+    let input = sine(440, amplitude: 0.8, count: 9_600)
+    let out = run(limiter, input: input)
+    for n in limiterDelay..<input.count { #expect(out.left[n] == input[n - limiterDelay]) }
+    #expect(dub_effect_get(limiter, Int32(DUB_LIMITER_REDUCTION)) == 0)
+}
+
+@Test func limiterHoldsASteadyGainOnALoudBass() {
+    let limiter = dub_effect_create(DUB_EFFECT_LIMITER)!
+    defer { dub_effect_destroy(limiter) }
+    let input = sine(45, amplitude: 2, count: 96_000)
+    let out = run(limiter, input: input)
+    // Over the last second, the gain seen on the waveform's crests barely moves: no riding of the bass.
+    var gains: [Float] = []
+    for n in 48_000..<input.count where abs(input[n - limiterDelay]) > 1.9 {
+        gains.append(out.left[n] / input[n - limiterDelay])
+    }
+    #expect(gains.max()! - gains.min()! < 0.01)
+    #expect(gains.min()! > limiterCeiling / 2 * 0.97) // takes off what the peak needs, not much more
+}
+
+@Test func limiterSwitchedOffLetsEverythingThroughWithoutAJump() {
+    let limiter = dub_effect_create(DUB_EFFECT_LIMITER)!
+    defer { dub_effect_destroy(limiter) }
+    dub_effect_set(limiter, Int32(DUB_LIMITER_BYPASS), 1)
+    let input = sine(100, amplitude: 2, count: 48_000)
+    let out = run(limiter, input: input)
+    for n in limiterDelay..<input.count { #expect(out.left[n] == input[n - limiterDelay]) }
+    #expect(dub_effect_get(limiter, Int32(DUB_LIMITER_REDUCTION)) == 0)
+}

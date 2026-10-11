@@ -115,7 +115,9 @@ public final class AudioEngine: MixEngineControl {
     public static func busReturnMeter(_ bus: SendBus) -> Int { stripCount + 1 + SendBus.allCases.count + bus.rawValue }
     /// What a strip's stems give before its fader and mute (after the insert): is there signal to bring in?
     public static func stripPreMeter(_ strip: Int) -> Int { stripCount + 1 + 2 * SendBus.allCases.count + strip }
-    public static let meterCount = 2 * stripCount + 1 + 2 * SendBus.allCases.count
+    /// What reaches the master limiter (after the make-up gain): above full scale, what it has to take off.
+    public static let limiterInputMeter = 2 * stripCount + 1 + 2 * SendBus.allCases.count
+    public static let meterCount = limiterInputMeter + 1
     /// Hors ligne, la lecture démarre ce nombre d'échantillons après l'appel à `play()`.
     public static let offlineStartDelay = 2048
     private static let headroom: Float = 0.5
@@ -196,12 +198,19 @@ public final class AudioEngine: MixEngineControl {
     private var switchingDevice = false
     /// Pull-up (PRD § 11.3): tape brake on the master, real time only.
     private var varispeed: AVAudioUnitVarispeed?
-    private var limiter: AVAudioUnitEffect?
+    private var limiter: BuiltInEffect?
 
     /// The master's safety limiter, bypassed on demand: no rewiring, so it can change while playing.
     public var limiterOn: Bool {
-        get { !(limiter?.auAudioUnit.shouldBypassEffect ?? false) }
-        set { limiter?.auAudioUnit.shouldBypassEffect = !newValue }
+        get { (limiter?.get(Int(DUB_LIMITER_BYPASS)) ?? 0) < 0.5 }
+        set { limiter?.set(Int(DUB_LIMITER_BYPASS), newValue ? 0 : 1) }
+    }
+
+    /// Deepest gain reduction of the limiter (dB) since the last call.
+    public func takeLimiterReduction() -> Float {
+        guard let limiter else { return 0 }
+        defer { limiter.set(Int(DUB_LIMITER_REDUCTION), 0) }
+        return limiter.get(Int(DUB_LIMITER_REDUCTION))
     }
     private var pullUpStart: Date?
     private var masterVolume: Float = headroom
@@ -241,6 +250,7 @@ public final class AudioEngine: MixEngineControl {
 
     private var returnBusBase: Int { Self.stripCount }
     private var masterOutput: AVAudioNode?
+    private var limiterInput: AVAudioNode?
 
     /// Input of a send bus taking strip `strip` before its fader (post-fader sends use the first `stripCount` inputs).
     private func preBus(_ bus: SendBus, strip: Int) -> Int { Self.stripCount + strip }
@@ -325,20 +335,14 @@ public final class AudioEngine: MixEngineControl {
             let makeup = AVAudioUnitEQ(numberOfBands: 1)
             makeup.bands[0].bypass = true
             makeup.globalGain = 6.02
-            let limiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_PeakLimiter,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0, componentFlagsMask: 0
-            ))
-            // Longest release the unit allows (default 24 ms), so it does not ride the bass waveform.
-            AudioUnitSetParameter(limiter.audioUnit, kLimiterParam_DecayTime, kAudioUnitScope_Global, 0, 0.06, 0)
-            for node in [varispeed, makeup, limiter] { engine.attach(node) }
+            let limiter = BuiltInEffect(.limiter)
+            for node in [varispeed, makeup, limiter.node] { engine.attach(node) }
             engine.connect(tail, to: varispeed, format: format)
             engine.connect(varispeed, to: makeup, format: format)
-            engine.connect(makeup, to: limiter, format: format)
-            engine.connect(limiter, to: engine.outputNode, format: format)
-            masterOutput = limiter
+            engine.connect(makeup, to: limiter.node, format: format)
+            engine.connect(limiter.node, to: engine.outputNode, format: format)
+            masterOutput = limiter.node
+            limiterInput = makeup
             self.limiter = limiter
         }
         main.outputVolume = Self.headroom
@@ -359,6 +363,8 @@ public final class AudioEngine: MixEngineControl {
         }
         masterOutput?.installTap(onBus: 0, bufferSize: 1024, format: nil,
                                  block: Self.tap(meters, index: Self.masterMeter, scale: 1, recorder: recorder))
+        limiterInput?.installTap(onBus: 0, bufferSize: 1024, format: nil,
+                                 block: Self.tap(meters, index: Self.limiterInputMeter, scale: 1, recorder: nil))
         // The neutral nodes around each effect stay wired whatever effect the bus holds.
         for bus in SendBus.allCases {
             let b = bus.rawValue

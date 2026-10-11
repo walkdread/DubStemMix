@@ -669,6 +669,31 @@ private struct LiveMeter: View {
     }
 }
 
+/// What the limiter takes off right now (or, switched off, how far the output clips), and the most since reset.
+private struct LimiterReadout: View {
+    var model: AppModel
+
+    var body: some View {
+        let label = model.limiterOn ? "GR" : "CLIP"
+        let now = model.limiterAmount, most = model.limiterAmountMax
+        Button(action: model.resetLimiterMax) {
+            VStack(spacing: 1) {
+                Text(now > 0 ? String(format: "%@ %@%.1f", label, model.limiterOn ? "−" : "+", now) : "\(label) –")
+                    .foregroundStyle(now > 0 ? (model.limiterOn && now < 3 ? Theme.delay : Theme.rec) : Theme.textDim)
+                Text(most > 0 ? String(format: "max %@%.1f", model.limiterOn ? "−" : "+", most) : "max –")
+                    .foregroundStyle(Theme.textDim)
+            }
+            .font(Fonts.mono(9))
+            .monospacedDigit()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(model.limiterOn
+              ? "dB the limiter takes off the master, now and at most. Click to reset the max."
+              : "dB the output goes over 0 dB (it clips), now and at most. Click to reset the max.")
+    }
+}
+
 private struct MasterView: View {
     var model: AppModel
 
@@ -729,16 +754,19 @@ private struct MasterView: View {
             .padding(.vertical, 14)
             .frame(maxHeight: .infinity)
 
-            Button(action: model.toggleLimiter) {
-                Text(model.limiterOn ? "LIMITER ON" : "LIMITER OFF")
-                    .font(Fonts.mono(9.5, weight: model.limiterOn ? 400 : 700))
-                    .foregroundStyle(model.limiterOn ? Theme.reverb : Theme.rec)
-                    .contentShape(Rectangle())
+            VStack(spacing: 3) {
+                Button(action: model.toggleLimiter) {
+                    Text(model.limiterOn ? "LIMITER ON" : "LIMITER OFF")
+                        .font(Fonts.mono(9.5, weight: model.limiterOn ? 400 : 700))
+                        .foregroundStyle(model.limiterOn ? Theme.reverb : Theme.rec)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(model.limiterOn
+                      ? "Safety limiter on the master. Click to switch it off (nothing then stops the output from clipping)."
+                      : "No limiter: above 0 dB the output clips. Click to switch it back on.")
+                LimiterReadout(model: model)
             }
-            .buttonStyle(.plain)
-            .help(model.limiterOn
-                  ? "Safety limiter on the master. Click to switch it off (nothing then stops the output from clipping)."
-                  : "No limiter: above 0 dB the output clips. Click to switch it back on.")
             .frame(height: 42, alignment: .top)
         }
         .padding(.horizontal, 12)

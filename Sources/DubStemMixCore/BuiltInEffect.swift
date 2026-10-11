@@ -9,6 +9,8 @@ public final class BuiltInEffect {
         case delay, plate, phaser, master, spring, sub, wah, flanger
         /// Switches (two kernels in one unit, see dub_switch.c): the effect changes without rewiring the graph.
         case reverbBus, bus3, insert
+        /// The master's safety limiter (dub_limiter.c).
+        case limiter
 
         var dspKind: DubEffectKind {
             switch self {
@@ -23,6 +25,7 @@ public final class BuiltInEffect {
             case .reverbBus: DUB_EFFECT_REVERB_BUS
             case .bus3: DUB_EFFECT_BUS3
             case .insert: DUB_EFFECT_INSERT
+            case .limiter: DUB_EFFECT_LIMITER
             }
         }
 
@@ -39,6 +42,7 @@ public final class BuiltInEffect {
             case .reverbBus: "drvb"
             case .bus3: "db3x"
             case .insert: "dins"
+            case .limiter: "dlim"
             }
             return AudioComponentDescription(
                 componentType: kAudioUnitType_Effect,
@@ -72,6 +76,10 @@ public final class BuiltInEffect {
     /// Paramètre du noyau (constantes DUB_* de DubDSP), en unités réelles. Lissé par le noyau.
     public func set(_ parameter: Int, _ value: Float) {
         dub_effect_set(unit.kernel, Int32(parameter), value)
+    }
+
+    public func get(_ parameter: Int) -> Float {
+        dub_effect_get(unit.kernel, Int32(parameter))
     }
 }
 
