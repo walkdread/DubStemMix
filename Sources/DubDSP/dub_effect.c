@@ -18,6 +18,7 @@ DubEffect *dub_effect_create(DubEffectKind kind) {
         case DUB_EFFECT_BUS3:
         case DUB_EFFECT_INSERT: dub_switch_install(effect); break;
         case DUB_EFFECT_LIMITER: dub_limiter_install(effect); break;
+        case DUB_EFFECT_BRAKE: dub_brake_install(effect); break;
     }
     if (!effect->state) { free(effect); return NULL; }
     effect->prepare(effect);

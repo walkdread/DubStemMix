@@ -6,6 +6,22 @@ import Foundation
 /// sample rate and buffer size, then lets the engine run for a second to read the render load and dropouts.
 @MainActor
 enum AudioCheck {
+    /// Largest second difference of the left channel up to `seconds` (a click is a sudden bend), and the peak level.
+    private static func largestBend(in url: URL, until seconds: Double) throws -> (value: Float, peak: Float, at: Double) {
+        let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)) else { return (0, 0, 0) }
+        try file.read(into: buffer)
+        let frames = min(Int(buffer.frameLength), Int(seconds * file.processingFormat.sampleRate))
+        let left = UnsafeBufferPointer(start: buffer.floatChannelData![0], count: frames)
+        var bend: Float = 0, peak: Float = 0, at = 0
+        for n in 1..<max(1, left.count - 1) {
+            let value = abs(left[n + 1] - 2 * left[n] + left[n - 1])
+            if value > bend { (bend, at) = (value, n) }
+            peak = max(peak, abs(left[n]))
+        }
+        return (bend, peak, Double(at) / file.processingFormat.sampleRate)
+    }
+
     static func run() {
         setvbuf(stdout, nil, _IOLBF, 0)
         var failures = 0
@@ -94,9 +110,18 @@ enum AudioCheck {
             try engine.addStem(url: url, name: "tone", strip: 0)
             engine.setFaderGain(strip: 0, 1)
             engine.setMasterGain(0.2)
+            engine.setSendGain(.delay, strip: 0, 1) // the delay rings when the brake starts
             engine.play()
             RunLoop.main.run(until: Date().addingTimeInterval(2))
+            let delayReturn = AudioEngine.busReturnMeter(.delay)
+            _ = engine.meters.take(delayReturn)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            check(engine.meters.take(delayReturn) > 0.01, "the delay rings before the pull-up")
             let before = engine.position
+            // The whole gesture is recorded, to look for clicks in it afterwards.
+            let take = FileManager.default.temporaryDirectory.appending(path: "dsm-pullup-\(UUID().uuidString).wav")
+            defer { try? FileManager.default.removeItem(at: take) }
+            try engine.startRecording(to: take)
             engine.pullUp()
             check(engine.isPullingUp, "pull-up started at \(String(format: "%.2f", before)) s")
             var ticks = 0
@@ -105,7 +130,18 @@ enum AudioCheck {
                 RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 30))
                 ticks += 1
             }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let relaunchedAt = engine.recorder.duration
+            // The song starts again 0.1 s after the relaunch: until then the delay must be empty, not ringing on.
+            _ = engine.meters.take(delayReturn)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let leftover = engine.meters.take(delayReturn)
+            check(leftover < 0.001, "nothing left in the delay when the song starts again (peak \(String(format: "%.4f", leftover)))")
+            engine.setSendGain(.delay, strip: 0, 0)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+            engine.stopRecording()
+            let bend = try Self.largestBend(in: take, until: relaunchedAt) // the brake and the silence, not the restart
+            // A 220 Hz tone bends by peak × (2π·220/48000)² ≈ peak / 1200 per sample; a click, by far more.
+            check(bend.value < bend.peak / 120, "no click in the pull-up (largest bend \(String(format: "%.5f", bend.value)) at \(String(format: "%.3f", bend.at)) s, peak \(String(format: "%.3f", bend.peak)))")
             check(!engine.isPullingUp && engine.isPlaying && engine.position < 1, "restarted from the top after \(ticks) ticks (position \(String(format: "%.2f", engine.position)) s)")
             check(engine.load.overloadCount == 0, "no dropout during the pull-up")
 

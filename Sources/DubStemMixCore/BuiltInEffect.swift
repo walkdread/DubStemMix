@@ -9,8 +9,8 @@ public final class BuiltInEffect {
         case delay, plate, phaser, master, spring, sub, wah, flanger
         /// Switches (two kernels in one unit, see dub_switch.c): the effect changes without rewiring the graph.
         case reverbBus, bus3, insert
-        /// The master's safety limiter (dub_limiter.c).
-        case limiter
+        /// The master's safety limiter (dub_limiter.c) and pull-up tape brake (dub_brake.c).
+        case limiter, brake
 
         var dspKind: DubEffectKind {
             switch self {
@@ -26,6 +26,7 @@ public final class BuiltInEffect {
             case .bus3: DUB_EFFECT_BUS3
             case .insert: DUB_EFFECT_INSERT
             case .limiter: DUB_EFFECT_LIMITER
+            case .brake: DUB_EFFECT_BRAKE
             }
         }
 
@@ -43,6 +44,7 @@ public final class BuiltInEffect {
             case .bus3: "db3x"
             case .insert: "dins"
             case .limiter: "dlim"
+            case .brake: "dbrk"
             }
             return AudioComponentDescription(
                 componentType: kAudioUnitType_Effect,

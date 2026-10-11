@@ -327,7 +327,7 @@ Dans l'ordre du signal : somme des tranches et des retours → **big knob** → 
 - **Big knob** (King Tubby, console MCI) : passe-haut **à crans** — 20 Hz (off), 70, 100, 150, 200, 300, 500, 800 Hz, 1, 2, 5, 10 kHz —, pente 12 dB/oct, **sans résonance**, passage d'un cran à l'autre lissé (pas de clic) mais audible comme un palier. Un seul potard.
 - **Kills** (préampli de sound system) : isolateur 3 bandes **BASS / MID / TOP**, coupures 200 Hz et 2,5 kHz (filtres Linkwitz-Riley 24 dB/oct : la somme des trois bandes à fond est transparente). Chaque potard va du kill complet (−∞) à 0 dB, à fond par défaut ; pas de boost.
 - **Dubplate** : le son d'un acétate joué cent fois — saturation de bande douce, bande passante réduite (bas et haut), léger pleurage. **Un potard d'intensité** (0 = contourné) ; un second potard, à part, pour les **craquements** (0 par défaut).
-- **Pull-up / rewind** (geste, § 11.6) : ralentissement de la lecture jusqu'à l'arrêt (bande qui freine, hauteur qui tombe, en ~1 s), **retour au début et relance immédiate**. S'applique au master (varispeed) : les queues d'effets freinent avec le morceau, c'est le son recherché.
+- **Pull-up / rewind** (geste, § 11.6) : ralentissement de la lecture jusqu'à l'arrêt (bande qui freine, hauteur qui tombe, en ~1 s), **retour au début et relance immédiate**. S'applique au master : les queues d'effets freinent avec le morceau, c'est le son recherché. **En bas, elles s'arrêtent avec la bande** (corrigé le 11/10/2026) : les bus sont vidés pendant que le master est encore muet, puis le morceau repart ; avant, ce qui restait dans le delay ou la reverb ressortait à pleine vitesse juste avant la relance. **Frein maison, sans clic** (11/10/2026) : le varispeed d'Apple claquait de temps en temps à chaque changement de vitesse (30 par seconde) ; le frein (`dub_brake.c`) relit le master depuis une mémoire tampon, vitesse (1 → ¼, deux octaves plus bas) et fondu calculés à chaque échantillon.
 
 ### 11.4 Compléments delay et reverb (M7)
 
@@ -364,7 +364,7 @@ Réglages de la chaîne master et des compléments (nouveaux cas de `FXParameter
 
 ### 11.8 Architecture
 
-- **Master** : les étages s'insèrent entre le mixeur principal et le rattrapage de gain, chacun entre deux nœuds neutres fixes (même recette que les bus : un changement à chaud ne touche jamais aux mixeurs). Pull-up : `AVAudioUnitVarispeed` sur le master.
+- **Master** : les étages s'insèrent entre le mixeur principal et le rattrapage de gain, chacun entre deux nœuds neutres fixes (même recette que les bus : un changement à chaud ne touche jamais aux mixeurs). Pull-up : frein de bande maison sur le master (`dub_brake.c`, remplace `AVAudioUnitVarispeed`, qui claquait aux changements de vitesse).
 - **Inserts** (construit en M8) : `somme des stems → entrée neutre → effet → sortie neutre → mixeur « pré » (prises pré-fader et throw) → mixeur fader (master + envois post)`. Les nœuds neutres existent dès le départ pour toutes les tranches ; un insert vide est un simple passage. Conséquence : les envois pré-fader et le dub throw sont pris **après** l'insert (un sub ajouté sur la basse part aussi dans le delay).
 - **Noyaux DSP en C** (`DubDSP`), sans allocation ni verrou : passe-haut à crans, isolateur, dubplate, ressort (+ crash), têtes et ping-pong dans `dub_delay.c`, HOLD dans la boucle du delay, sub, auto-wah, flanger. Chacun testé en rendu hors ligne.
 - **Contrôleur logique** : pages MASTER et INSERTS, disposition en données comme `FXParameter.layout`, rattrapage inchangé.

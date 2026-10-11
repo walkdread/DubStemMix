@@ -87,7 +87,7 @@ public protocol MixEngineControl: AnyObject {
 
 /// Graphe validé au jalon M0 :
 ///
-///   lecteur ─▶ somme de tranche ─▶ insert ─▶ prise pré ─┬─▶ fader/mute ─┬─▶ master ─▶ chaîne master ─▶ varispeed ─▶ gain ─▶ limiteur ─▶ sortie
+///   lecteur ─▶ somme de tranche ─▶ insert ─▶ prise pré ─┬─▶ fader/mute ─┬─▶ master ─▶ chaîne master ─▶ frein (pull-up) ─▶ gain ─▶ limiteur ─▶ sortie
 ///                                                       │               └─▶ 3 bus d'envoi (post-fader) ─▶ effet ─▶ retour ─▶ master
 ///                                                       └─▶ 3 send buses (before fader and mute: pre-fader sends, dub throw)
 ///                                                                       retour d'un bus ─▶ un autre bus (renvoi, issue #1)
@@ -197,7 +197,7 @@ public final class AudioEngine: MixEngineControl {
     private var dryCut = false
     private var switchingDevice = false
     /// Pull-up (PRD § 11.3): tape brake on the master, real time only.
-    private var varispeed: AVAudioUnitVarispeed?
+    private var brake: BuiltInEffect?
     private var limiter: BuiltInEffect?
 
     /// The master's safety limiter, bypassed on demand: no rewiring, so it can change while playing.
@@ -213,12 +213,15 @@ public final class AudioEngine: MixEngineControl {
         return limiter.get(Int(DUB_LIMITER_REDUCTION))
     }
     private var pullUpStart: Date?
-    private var masterVolume: Float = headroom
-    public var isPullingUp: Bool { pullUpStart != nil }
+    /// Bottom of the brake reached: the master stays silent until then, while the buses empty.
+    private var pullUpRelaunch: Date?
+    public var isPullingUp: Bool { pullUpStart != nil || pullUpRelaunch != nil }
     /// What the pull-up lands on, when set: called at the bottom of the brake, engine stopped, instead of playing the
     /// song again from the top (a setlist's armed song). Used once.
     public var pullUpLanding: (() -> Void)?
     private static let pullUpDuration = 1.3
+    /// Longer than the buses' clear (60 ms built in, 80 ms for a plugin).
+    private static let pullUpSettle = 0.1
     private var basePosition = 0.0
 
     /// - Parameter offline: rendu manuel sans carte son ni limiteur (tests au sample près).
@@ -326,19 +329,18 @@ public final class AudioEngine: MixEngineControl {
             if tail !== main { engine.connect(tail, to: engine.outputNode, format: format) }
             masterOutput = tail
         } else {
-            // Pull-up: a varispeed, bypassed until the gesture (rate 1 = plain passthrough).
-            let varispeed = AVAudioUnitVarispeed()
-            varispeed.auAudioUnit.shouldBypassEffect = true
-            self.varispeed = varispeed
+            // Pull-up: the tape brake, a passthrough until the gesture.
+            let brake = BuiltInEffect(.brake)
+            self.brake = brake
             // Master: gives back the strip and master headroom (12 dB) minus a 6 dB margin, so every fader up
             // plays the song 6 dB under its original level (loud masters peak above 0 dB), then the safety limiter.
             let makeup = AVAudioUnitEQ(numberOfBands: 1)
             makeup.bands[0].bypass = true
             makeup.globalGain = 6.02
             let limiter = BuiltInEffect(.limiter)
-            for node in [varispeed, makeup, limiter.node] { engine.attach(node) }
-            engine.connect(tail, to: varispeed, format: format)
-            engine.connect(varispeed, to: makeup, format: format)
+            for node in [brake.node, makeup, limiter.node] { engine.attach(node) }
+            engine.connect(tail, to: brake.node, format: format)
+            engine.connect(brake.node, to: makeup, format: format)
             engine.connect(makeup, to: limiter.node, format: format)
             engine.connect(limiter.node, to: engine.outputNode, format: format)
             masterOutput = limiter.node
@@ -526,41 +528,40 @@ public final class AudioEngine: MixEngineControl {
     }
 
     public func setMasterGain(_ gain: Float) {
-        masterVolume = min(1, gain * Self.headroom)
-        if !isPullingUp { engine.mainMixerNode.outputVolume = masterVolume }
+        engine.mainMixerNode.outputVolume = min(1, gain * Self.headroom)
     }
 
     // MARK: Pull-up (PRD § 11.3)
 
-    /// The selector's rewind: the whole master brakes like a tape (pitch falls with the speed), fades out
-    /// at the bottom, then the song restarts from the top at once. Driven by `tick()`.
+    /// The selector's rewind: the whole master brakes like a tape (pitch falls with the speed) and fades out
+    /// (dub_brake.c, per sample), then the song restarts from the top. Driven by `tick()`.
     public func pullUp() {
-        guard isPlaying, varispeed != nil, !isPullingUp else { return }
-        varispeed?.rate = 1
-        varispeed?.auAudioUnit.shouldBypassEffect = false
+        guard isPlaying, let brake, !isPullingUp else { return }
+        brake.set(Int(DUB_BRAKE_SECONDS), Float(Self.pullUpDuration))
+        brake.set(Int(DUB_BRAKE_ENGAGE), 1)
         pullUpStart = .now
     }
 
     private func advancePullUp() {
-        guard let start = pullUpStart, let varispeed else { return }
-        let t = min(1, Date.now.timeIntervalSince(start) / Self.pullUpDuration)
-        // Speed: 1 → 0.25 (two octaves down, the varispeed's floor), accelerating like a real brake.
-        varispeed.rate = Float(1 - 0.75 * t * t)
-        // The last stretch fades to silence: the tape never quite stops but the ear hears it stop.
-        let fade: Float = t < 0.55 ? 1 : Float(pow(1 - (t - 0.55) / 0.45, 2))
-        engine.mainMixerNode.outputVolume = masterVolume * fade
-        guard t >= 1 else { return }
+        if let relaunch = pullUpRelaunch {
+            guard Date.now >= relaunch else { return }
+            pullUpRelaunch = nil
+            brake?.set(Int(DUB_BRAKE_ENGAGE), 0) // nothing comes in any more: passthrough again, silently
+            if let landing = pullUpLanding {
+                pullUpLanding = nil
+                landing()
+            } else {
+                play()
+            }
+            return
+        }
+        guard let start = pullUpStart, Date.now.timeIntervalSince(start) >= Self.pullUpDuration else { return }
+        // At the bottom (the brake now silent) the effects' tails stop with the tape: the buses are emptied
+        // before the brake lets the master through again, otherwise what is left of them would come back.
         pullUpStart = nil
         stop()
-        varispeed.rate = 1
-        varispeed.auAudioUnit.shouldBypassEffect = true
-        engine.mainMixerNode.outputVolume = masterVolume
-        if let landing = pullUpLanding {
-            pullUpLanding = nil
-            landing()
-        } else {
-            play()
-        }
+        clearEffects()
+        pullUpRelaunch = .now.addingTimeInterval(Self.pullUpSettle)
     }
 
     public func setFX(_ parameter: FXParameter, _ value: Float) {

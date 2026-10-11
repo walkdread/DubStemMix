@@ -1019,3 +1019,44 @@ private func sine(_ frequency: Float, amplitude: Float, count: Int) -> [Float] {
     for n in limiterDelay..<input.count { #expect(out.left[n] == input[n - limiterDelay]) }
     #expect(dub_effect_get(limiter, Int32(DUB_LIMITER_REDUCTION)) == 0)
 }
+
+// MARK: - Pull-up tape brake
+
+@Test func brakeIsAPassthroughTwoSamplesLateUntilEngaged() {
+    let brake = dub_effect_create(DUB_EFFECT_BRAKE)!
+    defer { dub_effect_destroy(brake) }
+    let input = sine(440, amplitude: 0.5, count: 4_800)
+    let out = run(brake, input: input)
+    for n in 2..<input.count { #expect(out.left[n] == input[n - 2]) }
+}
+
+@Test func brakeSlowsDownSmoothlyThenFallsSilent() {
+    let brake = dub_effect_create(DUB_EFFECT_BRAKE)!
+    defer { dub_effect_destroy(brake) }
+    dub_effect_set(brake, Int32(DUB_BRAKE_SECONDS), 1)
+    let input = sine(440, amplitude: 0.5, count: 48_000 * 2)
+    var out = run(brake, input: Array(input[0..<4_800])).left
+    dub_effect_set(brake, Int32(DUB_BRAKE_ENGAGE), 1)
+    out += run(brake, input: Array(input[4_800...])).left
+
+    // Engaging, and every step of the brake, without a jump: a 440 Hz sine at 0.5 bends by 0.0021 per sample at most.
+    let bends = (10..<out.count - 1).map { abs(out[$0 + 1] - 2 * out[$0] + out[$0 - 1]) } // past the sine's own onset
+    #expect(bends.max()! < 0.0025)
+    // The pitch falls: about 440 Hz at the start, far lower halfway (speed 0.81 then falling).
+    #expect(abs(zeroCrossings(out[4_800..<9_600]) - 88) <= 3) // both ways: 2 × 44 per 0.1 s
+    #expect(zeroCrossings(out[24_000..<28_800]) < 76)
+    // Silent once braked (1 s after engaging), and as long as it stays engaged.
+    #expect(out[(4_800 + 48_000)...].allSatisfy { $0 == 0 })
+}
+
+@Test func releasedBrakeLetsTheMasterThroughAgain() {
+    let brake = dub_effect_create(DUB_EFFECT_BRAKE)!
+    defer { dub_effect_destroy(brake) }
+    dub_effect_set(brake, Int32(DUB_BRAKE_SECONDS), 0.1)
+    dub_effect_set(brake, Int32(DUB_BRAKE_ENGAGE), 1)
+    _ = run(brake, input: sine(440, amplitude: 0.5, count: 9_600))
+    dub_effect_set(brake, Int32(DUB_BRAKE_ENGAGE), 0)
+    let input = sine(220, amplitude: 0.3, count: 4_800)
+    let out = run(brake, input: input)
+    for n in 2..<input.count { #expect(out.left[n] == input[n - 2]) }
+}

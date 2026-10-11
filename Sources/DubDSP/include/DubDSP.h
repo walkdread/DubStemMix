@@ -28,6 +28,7 @@ typedef enum {
     DUB_EFFECT_INSERT = 10,    // strip insert: straight through (select 0), sub (1) or auto-wah (2), crossfaded.
                                // Sub parameters at DUB_INSERT_SUB + DUB_SUB_*, wah at DUB_INSERT_WAH + DUB_WAH_*.
     DUB_EFFECT_LIMITER = 11,   // master safety limiter: 2 ms look-ahead, ceiling −1 dBFS, automatic release
+    DUB_EFFECT_BRAKE = 12,     // pull-up tape brake on the master: slows to a quarter speed and fades, per sample
 } DubEffectKind;
 
 // Paramètres, en unités réelles.
@@ -79,6 +80,11 @@ enum {
     DUB_MASTER_TOP = 3,       // above 2.5 kHz
     DUB_MASTER_DUBPLATE = 4,  // 0 … 1 intensity (0 = exact passthrough)
     DUB_MASTER_CRACKLE = 5,   // 0 … 1
+};
+
+enum {
+    DUB_BRAKE_ENGAGE = 0,      // ≥ 0.5: brake from now on, then stay silent; < 0.5: passthrough (2 samples late)
+    DUB_BRAKE_SECONDS = 1,     // length of the brake (1.3 by default)
 };
 
 enum {
