@@ -16,7 +16,7 @@ Open them with <kbd>⌘</kbd> <kbd>,</kbd>.
 |---|---|
 | **Output device** | the sound card the app plays on |
 | **Buffer size** | smaller is more responsive, larger is safer: 128 or 256 samples to play live |
-| **Recordings folder** | where ⌘R writes its WAV files |
+| **Recordings folder** | where ⌘R writes its sessions, one folder each |
 | **Pre / post fader, per bus** | whether a strip still feeds that effect with its fader down |
 | **Audio Units** | rescan the plugins installed on the Mac |
 | **Stem separation** | download or delete the engine (663 MB), choose the stems folder |

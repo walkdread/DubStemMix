@@ -1,7 +1,7 @@
 ---
 title: Projects, setlists and recording
 seoTitle: Save projects, build setlists, record · DubStemMix
-description: Save a tune as a DubStemMix project, build your sets in the setlist workshop, take a set to another Mac and record your dub versions as 24-bit WAV.
+description: Save a tune as a DubStemMix project, build your sets in the setlist workshop, take a set to another Mac, record your sessions and export them as MP3.
 nav: Projects and sets
 order: 7
 ---
@@ -78,8 +78,34 @@ Audio Unit plugins cannot be copied: `PLUGINS.txt` in the folder lists the ones 
 
 <kbd>⌘</kbd> <kbd>R</kbd>, or **REC** at the top right. Press again to stop.
 
-- The master is recorded as it leaves the app, after the limiter, as a **24-bit WAV**.
-- Files are named after the tune, the date and the time, in `Music/DubStemMix` (another folder can be chosen in Settings).
-- When it stops, **show in Finder** takes you to the file.
+- The master is recorded as it leaves the app, after the limiter, as a **32-bit float WAV**. Float keeps what goes over 0 dB (limiter off): a session recorded too hot can be turned down afterwards, without damage. About 1.6 GB per hour.
+- Each session gets **its own folder**, named after its start, in `Music/DubStemMix` (another folder can be chosen in Settings): `2026-10-11 21h30/`.
+- When it stops, **show in Finder** takes you to the folder.
 
-Your version is ready to master, press or play on the sound system.
+Inside the folder:
+
+| File | What it is |
+|---|---|
+| `session.wav` | the recording |
+| `session.txt` | the session sheet: date, start and end, duration, setlist, sound card, limiter, and the **tracklist** |
+| `session.json` | the same, for the app |
+| `session.mp3` | once exported (see below) |
+
+The tracklist gives each song the time it started in the recording, ready to paste as YouTube chapters or a Mixcloud tracklist:
+
+```
+00:00 WHERE WE BELONG
+12:34 BLACK ARK
+1:02:10 SATTA DUB
+```
+
+A song enters the list when it starts playing during the recording; a song played again appears again.
+
+## Recorded sessions and MP3
+
+**Window ▸ Recorded Sessions** (<kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>R</kbd>) lists your sessions, newest first. Choose one to see its tracklist, then:
+
+- **EXPORT MP3**: a 320 kb/s MP3 next to the WAV, brought to **−14 LUFS**, the level of YouTube, Spotify or Mixcloud, with peaks at −1.5 dB at most. A very dynamic session that cannot reach −14 LUFS without going over stays a little quieter: the export only turns the volume, it never compresses. It runs in the background, even while you play; exporting again replaces the MP3.
+- **SHOW IN FINDER** and **MOVE TO TRASH** (the whole folder, after a confirmation).
+
+The WAV stays your master: keep it to press, master or export again.

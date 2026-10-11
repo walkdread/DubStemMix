@@ -12,7 +12,7 @@ import SwiftUI
 //   swift run DubStemMix --download-models               télécharge les 4 réseaux htdemucs_ft (663 Mo) dans le dossier de l'app
 //   swift run DubStemMix --split <fichier> [--out dir] [--provider cpu|coreml-…] [--project]   sépare un morceau avec les vrais modèles et rapporte Σ stems vs mix
 //   swift run DubStemMix --check-prepare <dossier> <fichiers…>   file du mode préparation sur le vrai modèle, puis annulation
-//   swift run DubStemMix --snapshot out.png [--fx | --master | --inserts | --settings | --prepare | --setlists]   rend l'interface (données de démo) dans un PNG
+//   swift run DubStemMix --snapshot out.png [--fx | --master | --inserts | --settings | --prepare | --setlists | --sessions]   rend l'interface (données de démo) dans un PNG
 
 @main
 enum Main {
@@ -47,14 +47,14 @@ enum Main {
         } else if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             let page: MixController.Page = args.contains("--fx") ? .fx : args.contains("--master") ? .master : args.contains("--inserts") ? .inserts : .mix
             snapshot(to: args[i + 1], page: page, settings: args.contains("--settings"), prepare: args.contains("--prepare"),
-                     setlists: args.contains("--setlists"))
+                     setlists: args.contains("--setlists"), sessions: args.contains("--sessions"))
         } else {
             DubStemMixApp.main()
         }
     }
 
     @MainActor
-    private static func snapshot(to path: String, page: MixController.Page, settings: Bool, prepare: Bool, setlists: Bool) {
+    private static func snapshot(to path: String, page: MixController.Page, settings: Bool, prepare: Bool, setlists: Bool, sessions: Bool) {
         guard let model = try? AppModel(preview: true) else {
             print("Échec de la création du modèle de démonstration")
             exit(1)
@@ -62,8 +62,11 @@ enum Main {
         model.mix.setPage(page)
         if prepare { model.loadPreviewPreparation() }
         if setlists { model.loadPreviewWorkshop() }
+        if sessions { model.loadPreviewSessions() }
         let renderer = settings
             ? ImageRenderer(content: AnyView(SettingsView(model: model)))
+            : sessions
+            ? ImageRenderer(content: AnyView(SessionsView(model: model).frame(width: 860, height: 560)))
             : ImageRenderer(content: AnyView(RootView(model: model).frame(width: 1440, height: 900)))
         renderer.scale = 1
         guard let image = renderer.nsImage,
@@ -106,6 +109,12 @@ struct DubStemMixApp: App {
         Settings {
             if let model { SettingsView(model: model) }
         }
+        // Listed in the Window menu.
+        Window("Recorded Sessions", id: "sessions") {
+            if let model { SessionsView(model: model) }
+        }
+        .keyboardShortcut("r", modifiers: [.command, .shift])
+        .defaultSize(width: 860, height: 560)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Session") { model?.newSession() }.keyboardShortcut("n")

@@ -1,7 +1,7 @@
 import AVFoundation
 
-/// Enregistre le master dans un fichier WAV 24 bits. Les tampons arrivent d'un tap AVAudioEngine,
-/// c'est-à-dire hors du thread de rendu temps réel : écrire sur le disque ici ne peut pas faire décrocher l'audio.
+/// Records the master into a 32-bit float WAV: what goes over 0 dB (limiter off) is kept, not clipped.
+/// Buffers come from an AVAudioEngine tap, off the real-time render thread: writing to disk here cannot cause a dropout.
 public final class MasterRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var file: AVAudioFile?
@@ -19,8 +19,8 @@ public final class MasterRecorder: @unchecked Sendable {
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: format.sampleRate,
             AVNumberOfChannelsKey: format.channelCount,
-            AVLinearPCMBitDepthKey: 24,
-            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
         ]
         let newFile = try AVAudioFile(

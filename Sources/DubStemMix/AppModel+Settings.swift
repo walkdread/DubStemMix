@@ -44,6 +44,7 @@ extension AppModel {
     func toggleLimiter() {
         limiterOn.toggle()
         engine.limiterOn = limiterOn
+        noteLimiterToggled()
         UserDefaults.standard.set(limiterOn, forKey: Preference.limiterOn)
     }
 

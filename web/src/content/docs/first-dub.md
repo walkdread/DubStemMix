@@ -131,7 +131,7 @@ Press <kbd>R</kbd>, or **REWIND** in the right column: the tape brakes on the wh
 
 ## 10. Record your version
 
-Press <kbd>⌘</kbd> <kbd>R</kbd>, or **REC** at the top right, then play your version. Press again to stop. The recording is a 24-bit WAV file in `Music/DubStemMix`.
+Press <kbd>⌘</kbd> <kbd>R</kbd>, or **REC** at the top right, then play your version. Press again to stop. The recording goes into its own folder in `Music/DubStemMix`, with a sheet that lists the tunes played; **Window ▸ Recorded Sessions** turns it into an MP3.
 
 Then <kbd>⌘</kbd> <kbd>S</kbd> saves the project (a `.dubstem` file): which stem is on which strip, the effect settings, the KEEP marks, the tempo. The positions of the faders and knobs are not saved: the console is the truth.
 

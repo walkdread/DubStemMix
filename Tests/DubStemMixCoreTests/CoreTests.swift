@@ -388,7 +388,7 @@ private func hits(_ samples: [Float]) -> [Int: Float] {
 
 // MARK: - Enregistrement
 
-@MainActor @Test func masterRecordingIsA24BitWavOfWhatWasPlayed() throws {
+@MainActor @Test func masterRecordingIsAFloatWavOfWhatWasPlayed() throws {
     let engine = try AudioEngine(offline: true)
     try engine.addStem(url: makeStem(frames: 96_000) { _ in 0.8 }, name: "dc", strip: 0)
     engine.setFaderGain(strip: 0, 1)
@@ -406,7 +406,8 @@ private func hits(_ samples: [Float]) -> [Int: Float] {
     _ = try engine.renderOffline(frames: 4800) // plus rien n'est écrit après l'arrêt
 
     let file = try AVAudioFile(forReading: url)
-    #expect(file.fileFormat.settings[AVLinearPCMBitDepthKey] as? Int == 24)
+    #expect(file.fileFormat.settings[AVLinearPCMBitDepthKey] as? Int == 32)
+    #expect(file.fileFormat.commonFormat == .pcmFormatFloat32)
     #expect(file.fileFormat.channelCount == 2 && file.fileFormat.sampleRate == 48_000)
     #expect(abs(Double(file.length) - 48_000) <= 1024, "\(file.length) frames")
     let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!

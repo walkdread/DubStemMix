@@ -120,6 +120,18 @@ void dub_portal_write(DubPortal *portal, int source, double sampleTime, const fl
 /// Audio thread: what the other buses send to bus `target`, one render slice after they gave it back.
 void dub_portal_read(DubPortal *portal, int target, double sampleTime, float *left, float *right, int frames);
 
+// Loudness of a recording (dub_loudness.c), offline: integrated loudness (BS.1770-4, gated) and true peak.
+typedef struct DubLoudness DubLoudness;
+
+DubLoudness *dub_loudness_create(double sampleRate);
+void dub_loudness_destroy(DubLoudness *meter);
+/// Feeds stereo samples. Returns 0 if memory ran out.
+int dub_loudness_add(DubLoudness *meter, const float *left, const float *right, int frames);
+/// LUFS; -infinity when nothing passes the gates (silence, or under 400 ms).
+double dub_loudness_integrated(const DubLoudness *meter);
+/// dBTP (4× oversampled); -infinity for silence.
+double dub_loudness_true_peak(const DubLoudness *meter);
+
 #ifdef __cplusplus
 }
 #endif

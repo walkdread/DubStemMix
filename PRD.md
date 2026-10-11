@@ -173,9 +173,27 @@ Objectif : un son crédible pour le dub sans aucun plugin tiers.
 
 ### 5.9 Enregistrement
 
-- Bouton REC : enregistre le **master stéréo** (après limiteur) en **WAV** (24 bits, fréquence du moteur), écriture hors thread audio. Raccourci ⌘R.
-- Nommage automatique (morceau + date et heure), dans `~/Music/DubStemMix` (dossier réglable : à venir avec les réglages), chrono à l'écran, lien « show in Finder » une fois l'enregistrement terminé.
+- Bouton REC : enregistre le **master stéréo** (après limiteur), écriture hors thread audio. Raccourci ⌘R. Chrono à l'écran, lien « show in Finder » une fois l'enregistrement terminé.
 - L'enregistrement ne doit jamais provoquer de décrochage audio.
+
+**Sessions enregistrées** (issue #11, validé le 11/10/2026) :
+
+- **WAV 32 bits flottant** (fréquence du moteur), plus de 24 bits. Le flottant garde ce qui dépasse 0 dB (limiteur coupé) : une session trop forte se rattrape après coup, sans dégât. Environ 1,6 Go par heure (contre 1,2 Go).
+- **Un dossier par session** dans le dossier d'enregistrement (`~/Music/DubStemMix` par défaut, réglable), nommé seulement par la date et l'heure de début : `2026-10-11 21h30/` (si deux sessions démarrent dans la même minute, les secondes s'ajoutent : `2026-10-11 21h30m05s/`). Dedans :
+  - `session.wav` : l'enregistrement ;
+  - `session.txt` : la fiche, lisible par un humain (voir plus bas) ;
+  - `session.json` : les mêmes informations, que l'app relit pour l'historique ;
+  - `session.mp3` : seulement après un export.
+- **Fiche `session.txt`** : date, heure de début et de fin, durée, setlist (si ouverte), carte son et fréquence, limiteur ON/OFF (et s'il a été basculé pendant la session), puis la **liste des morceaux joués, horodatée** dans l'enregistrement, collable telle quelle en chapitres YouTube ou tracklist Mixcloud :
+  ```
+  00:00 Where We Belong
+  12:34 Morceau suivant
+  1:02:10 Un autre
+  ```
+  Un morceau entre dans la liste quand sa lecture démarre pendant l'enregistrement ; celui qui joue déjà au moment du REC est à 00:00 ; un morceau rejoué apparaît à nouveau.
+- **Fenêtre « Recorded Sessions »** (menu Window, ⇧⌘R ; « Sessions » seul se confondait avec « New Session » du menu File), hors de la console live : les sessions du dossier d'enregistrement, la plus récente en haut, avec date, durée, nombre de morceaux et MP3 présent ou non. Une session choisie montre sa liste de morceaux. Actions : **Export MP3**, **Show in Finder**, **Move to Trash** (avec confirmation). Les anciens enregistrements (WAV seuls, d'avant ce changement) n'y apparaissent pas.
+- **Export MP3** a posteriori : 320 kb/s, même fréquence que le WAV, **normalisé à −14 LUFS** (le niveau du streaming), **pics à −1,5 dB au plus** : si une session très dynamique ne peut pas monter à −14 LUFS sans dépasser, elle reste un peu en dessous (un gain, jamais de compression). En tâche de fond, avec une barre de progression, sans gêner le jeu ; le fichier est écrit à côté du WAV, un nouvel export le remplace. Encodeur : LAME, embarqué dans l'app (LGPL, mentionné dans NOTICE).
+- La doc du site explique les sessions et l'export.
 
 ### 5.10 Interface
 

@@ -120,7 +120,9 @@ They put the effects under your hands without leaving the MIX page: one hand thr
 
 - **PAGE**: MIX, FX, MASTER, INSERTS.
 - **GESTURES**: DROP, REWIND, HOLD, CRASH. See [Gestures](../gestures/). Under them, **SOLO** clears the solos.
-- **The master fader** (the big fader on the right of the MIDImix), its meter, and **LIMITER ON**: the safety limiter. Click it to switch it off; without it, nothing stops the output from clipping above 0 dB, so watch the red top of the meter.
+- **The master fader** (the big fader on the right of the MIDImix), its meter, and **LIMITER ON**: the safety limiter. Click it to switch it off; without it, nothing stops the output from clipping above 0 dB, so watch the red top of the meter. Under it, **GR** shows how many dB the limiter takes off right now, and **max** the most since you last clicked it; with the limiter off it reads **CLIP**, how far the output goes over 0 dB.
+
+Every fader up, master included, never clips on its own: at the top of its travel a fader plays the stem at its original level, and the whole tune comes out 6 dB under the original. Only the effects (a runaway echo, a phaser) can push the limiter.
 
 ![The master column: pages, gestures, master fader](../../assets/screenshots/docs/gestures.png)
 

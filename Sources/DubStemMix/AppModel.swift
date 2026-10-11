@@ -143,8 +143,20 @@ final class AppModel {
 
     var isRecording = false
     var recordingTime = 0.0
-    /// Dernier enregistrement terminé (pour le retrouver dans le Finder).
+    /// Folder of the last finished session (to find it in the Finder).
     var lastRecording: URL?
+    /// The session being recorded and its folder (AppModel+Recording).
+    @ObservationIgnored var recordingSession: RecordingSession?
+    @ObservationIgnored var recordingFolder: URL?
+    /// Bumped each time a song is loaded: the first play of a new load enters the tracklist.
+    @ObservationIgnored var songLoads = 0
+    @ObservationIgnored var loggedSongLoad: Int?
+    /// The Recorded Sessions window: sessions found in the recordings folder, MP3 exports in progress (0…1) and
+    /// the last export error, by session folder.
+    var recordedSessions: [RecordingSession.Entry] = []
+    var sessionExports: [URL: Double] = [:]
+    var sessionExportErrors: [URL: String] = [:]
+    @ObservationIgnored var sessionExportTasks: [URL: Task<Void, Never>] = [:]
 
     /// A newer release found on GitHub, and where installing it stands (AppModel+Updates).
     var availableUpdate: ReleaseInfo?
@@ -250,33 +262,11 @@ final class AppModel {
         if isRecording {
             recordingTime = engine.recorder.duration
             if !engine.recorder.isRecording { // l'écriture a échoué (disque plein, volume éjecté…)
-                isRecording = false
+                finishRecordingSession()
                 errorMessage = "Recording stopped: can't write to disk"
+            } else {
+                followRecordedSong()
             }
-        }
-    }
-
-    // MARK: Enregistrement du master
-
-    func toggleRecording() {
-        if isRecording {
-            lastRecording = engine.stopRecording()
-            isRecording = false
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(at: recordingsFolder, withIntermediateDirectories: true)
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss" // heure locale
-            let stamp = formatter.string(from: .now)
-            let name = (title.isEmpty ? "Untitled" : title.capitalized).replacingOccurrences(of: "/", with: "-")
-            try engine.startRecording(to: recordingsFolder.appending(path: "\(name) \(stamp).wav"))
-            errorMessage = nil
-            recordingTime = 0
-            isRecording = true
-        } catch {
-            errorMessage = "Can't start recording: \(error.localizedDescription)"
         }
     }
 
@@ -372,6 +362,7 @@ final class AppModel {
     ///   sends, plugins on the buses) stays as it is, so nothing is rewired.
     /// - Parameter keepingInserts: strips whose plugin insert the coming song uses too: it stays plugged in.
     func clear(keepingRack: Bool = false, keepingInserts: Set<Int> = []) {
+        songLoads += 1
         for stem in engine.stems { dropStem(stem.id) }
         pool = []
         stripNames = [:]
