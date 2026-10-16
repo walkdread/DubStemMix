@@ -60,3 +60,13 @@
 - [x] Écran : tranches 7-8 teintées, écartées des stems.
 - [x] **[toi]** Essayé et validé à la MIDImix le 10/10 : vitesse du delay en tournant le potard 7 du haut, HOLD puis ×2, tape stop sur un écho, FX ONLY sur la voix envoyée dans le delay, faders 7-8 en changeant de page.
 - [x] Doc : README (« The effect strips »), site (The board, Gestures, accroche, llms.txt), captures MIX / FX / MASTER / INSERTS refaites.
+
+## 7. Sirène et Syndrum sur les tranches 5 et 6 (cadré le 16/10, PRD § 15)
+
+- [x] **[toi]** Relire le PRD § 15, trancher ses points ouverts et valider avant qu'on code (validé le 16/10 : insert autorisé sur un instrument).
+- [x] Moteur : sirène (hauteur, modulation, montée) et Syndrum (coup, chute, roulement sur le tempo), envoi delay.
+- [x] Console : tranches 5-6 vides = instruments, un stem déposé les libère, l'instrument revient quand on retire le dernier stem.
+- [x] Écran : en-têtes et libellés des tranches 5-6 en mode instrument.
+- [x] **[toi]** Essayer à la MIDImix (validé le 16/10, « c'est parfait ») : MUTE 5 tenu (sirène), REC ARM 5 pendant qu'elle sonne (montée), potards 5 (hauteur, vitesse, delay) ; MUTE 6 (un coup), REC ARM 6 tenu (roulement) ; carré / triangle et valeur du roulement à la souris ; un stem glissé sur la 5 puis retiré ; DROP pendant la sirène ; Esc pendant un roulement.
+- [x] **[toi]** Juger le son à l'oreille (sirène, Syndrum) : niveaux, vitesse de la montée, longueur des coups.
+- [x] Doc : site (The board, Gestures, Your first dub, Features, llms.txt, comparaison Amp FreQQ), README, captures MIX / FX / MASTER / INSERTS refaites avec la sirène (démo à 4 stems), nouvelle capture `docs/strip-instruments.png`, `docs/transport.png` recadrée (elle montrait le milieu de la fenêtre).
