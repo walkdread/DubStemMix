@@ -169,7 +169,7 @@ fs::path prepareSong(const fs::path& file,std::atomic<bool>& cancel,const Progre
 std::array<std::vector<float>,4> loadPrepared(const fs::path& folder,std::atomic<bool>& cancel){
     std::ifstream manifest(folder/L"complete.txt");
     for(int row=0;row<4;++row){std::string hash;manifest>>hash;if(hash.empty() || sha256(folder/(std::wstring(modelNames[row])+L".wav"),cancel)!=hash)throw std::runtime_error("Stems incompletos. Reintenta el analisis.");}
-    std::array<std::vector<float>,4> result;const int order[]={3,0,1,2};
+    std::array<std::vector<float>,4> result;const int order[]={0,1,2,3};
     for(int t=0;t<4;++t)result[t]=decode(folder/(std::wstring(modelNames[order[t]])+L".wav"),48000,cancel);
     for(auto& stem:result)if(stem.size()!=result[0].size())throw std::runtime_error("Stems desalineados");
     return result;
@@ -187,6 +187,17 @@ int separationSelfTest() {
         for(size_t i=0;i<44100;++i){const float sample=0.1f*std::sin(float(i)*0.062689377f)+0.07f*std::sin(float(i)*0.013819206f);
             signal[i*2]=sample;signal[i*2+1]=sample;}
         writeWave(file,signal);std::atomic<bool> cancel{false};
+        // Named cache fixtures detect accidental reordering even for previously prepared songs.
+        auto orderFolder=file.parent_path()/L"channel-order";fs::create_directories(orderFolder);
+        {
+            std::ofstream manifest(orderFolder/L"complete.txt");
+            for(int t=0;t<4;++t){auto stem=orderFolder/(std::wstring(modelNames[t])+L".wav");
+                writeWave(stem,std::vector<float>(44100*2,0.1f*(t+1)));manifest<<sha256(stem,cancel)<<"\n";}
+        }
+        auto ordered=loadPrepared(orderFolder,cancel);
+        for(int t=0;t<4;++t)if(ordered[t].size()<4000 || std::abs(ordered[t][2000]-0.1f*(t+1))>0.001f)
+            throw std::runtime_error("Fader order must be drums, bass, other, vocals");
+        std::fprintf(stderr,"PASS: cached stems map to drums, bass, other, vocals\n");
         const auto result=separateSong(file,cancel,[](const std::wstring& text){std::fwprintf(stderr,L"%ls\n",text.c_str());std::fflush(stderr);});
         size_t length=result[0].size();if(length<95000 || length>97000)throw std::runtime_error("Resample length failed");
         double energy=0;for(const auto& stem:result){if(stem.size()!=length)throw std::runtime_error("Stem alignment failed");for(float x:stem){if(!std::isfinite(x))throw std::runtime_error("Non-finite audio");energy+=double(x)*x;}}

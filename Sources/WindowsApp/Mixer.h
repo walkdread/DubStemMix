@@ -104,7 +104,7 @@ public:
                     for(auto& channel:voice) std::fill_n(channel,n,0.0f);
                     dub_effect_process(instruments[t-4],voice[0],voice[1],voice[0],voice[1],static_cast<int>(n));
                 }
-                const float target = (s.mute.load() || (anySolo && !s.solo.load())) ? 0 : s.level.load();
+                const float target = (anySolo ? !s.solo.load() : s.mute.load()) ? 0 : s.level.load();
                 std::array<float, buses> targetSend{};
                 for (int b = 0; b < buses; ++b) targetSend[b] = s.send[b].load();
                 for (unsigned i = 0; i < n; ++i) {

@@ -39,6 +39,25 @@ int main() {
     m.strip[4].samples.clear();m.panic();
     for(int b=0;b<500;++b)m.render(out,512);
     for(float x:out)CHECK(std::isfinite(x) && std::abs(x)<0.001f);
+    // Solo matches macOS: overrides mute, permits several stems, restores mute afterwards.
+    {
+        dubwin::Mixer soloMix;
+        soloMix.strip[0].samples.assign(48000*2,0.1f);
+        soloMix.strip[1].samples.assign(48000*2,0.2f);
+        soloMix.strip[0].mute=true;soloMix.strip[1].mute=true;
+        soloMix.playing=true;
+        auto settledEnergy=[&](){float energy=0;for(int b=0;b<5;++b)soloMix.render(out,512);for(float x:out)energy+=std::abs(x);return energy;};
+        CHECK(settledEnergy()<0.001f);
+        soloMix.strip[0].solo=true;
+        const float one=settledEnergy();CHECK(one>1);
+        soloMix.strip[1].solo=true;
+        CHECK(settledEnergy()>one*2);
+        soloMix.strip[0].solo=false;
+        CHECK(settledEnergy()>one*1.5f);
+        soloMix.strip[1].solo=false;
+        CHECK(settledEnergy()<0.001f);
+        CHECK(soloMix.strip[0].mute && soloMix.strip[1].mute);
+    }
     // Weighted overlap must reconstruct a constant without gaps, including the padded tail.
     const size_t total=dubwin::modelFrames+dubwin::stride+37;
     dubwin::Accumulator accumulation(total);std::vector<float> ones(dubwin::modelFrames,1);

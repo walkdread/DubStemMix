@@ -1,4 +1,4 @@
-DubStemMix para Windows x64 — alpha 0.4.1
+DubStemMix para Windows x64 — alpha 0.4.2
 
 NOVEDADES
 - Correccion de repintado: textos solo cuando cambian, forma de onda/medidor por
@@ -12,7 +12,7 @@ NOVEDADES
 - Ventana redimensionable/maximizable. Perillas con arcos, botones activos coloreados
   y medidor de pico real en el master. Archivo/Preferencias conserva los ajustes.
 - Consola oscura inspirada en macOS, perillas, faders verticales y vista de onda.
-- Abrir una cancion completa y separarla localmente en voz, bateria, bajo y otros.
+- Abrir una cancion completa y separarla localmente en bateria, bajo, otros y voz.
 - Siren y Syndrum originales en canales 5 y 6 cuando no tienen un stem cargado.
 - Plate/spring, phaser/flanger, controles de efectos, HOLD, x2, CRASH y TAPE STOP.
 - PANIC silencia instrumentos y vacia las colas con una transicion.
@@ -109,3 +109,10 @@ DSP original y port Windows: MIT. miniaudio 0.11.23 y ONNX Runtime CPU 1.19.2
 se fijan en CMake. Se incluyen avisos en licenses. Los modelos htdemucs_ft de
 Meta/StemSplitio se descargan de Hugging Face en una revision fija y no se
 redistribuyen en el ZIP. Consulta NOTICE para los avisos originales de modelos.
+
+NOVEDADES 0.4.2
+- Faders 1-4: BATERIA, BAJO, OTROS, VOZ. Recarga la cancion preparada; no requiere separarla de nuevo.
+- Solo como en Mac: admite varios canales simultaneos y tiene prioridad sobre Mute.
+- Alt + clic en Mute activa Solo. Clic en ese boton cuando indica SOLO lo desactiva.
+- Tambien puedes usar los botones Solo individuales. CLEAR SOLO, encima del master, quita todos los solos y conserva los mutes anteriores.
+- MIDImix: mantener SOLO y pulsar MUTE del canal.

@@ -18,7 +18,7 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.4.1*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.4.2*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   if ([WindowCapture]::GetDlgItem($app.MainWindowHandle,900) -eq [IntPtr]::Zero) { throw 'Integrated library missing' }
   foreach ($view in @(@(1280,850,$Output), @(1024,700,($Output -replace '.png$','-compact.png')))) {
     [void][WindowCapture]::SetWindowPos($app.MainWindowHandle,[IntPtr]::Zero,0,0,$view[0],$view[1],4)
