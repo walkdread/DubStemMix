@@ -16,7 +16,7 @@ std::vector<std::pair<int,std::wstring>> gpuAdapters();
 std::filesystem::path prepareSong(const std::filesystem::path& file, std::atomic<bool>& cancel,
     const Progress& progress, SeparationOptions options);
 std::array<std::vector<float>,4> loadPrepared(const std::filesystem::path& folder, std::atomic<bool>& cancel);
-// Worker thread only. Returns UI channel order: vocals, drums, bass, other, at 48 kHz stereo.
+// Worker thread only. Returns UI channel order: drums, bass, other, vocals, at 48 kHz stereo.
 std::array<std::vector<float>,4> separateSong(const std::filesystem::path& file,
     std::atomic<bool>& cancel, const Progress& progress);
 }

@@ -190,7 +190,7 @@ En MinGW, `CMakeLists.txt` añade automáticamente `-municode` (para `wWinMain`)
 2. Abre `build-windows/DubStemMix.exe` (o `make run`).
 3. Elige la salida de audio en la lista superior. El nombre lo da Windows; puede no coincidir literalmente con el nombre comercial de la interfaz.
 4. Baja el volumen físico de escucha. Pulsa **Reproducir** y súbelo poco a poco.
-5. Carga un archivo por pista: voz, batería, bajo y otros. Los stems deben ser de la misma canción y estar alineados desde el mismo instante inicial.
+5. Carga un archivo por pista: batería, bajo, otros y voz. Los stems deben ser de la misma canción y estar alineados desde el mismo instante inicial.
 6. Ajusta faders, envíos y retornos. Si un control MIDI no responde, muévelo hasta alcanzar el valor que aparece en pantalla (pickup).
 
 ### Controles de la MIDImix
