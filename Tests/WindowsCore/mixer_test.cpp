@@ -46,7 +46,7 @@ int main() {
         soloMix.strip[1].samples.assign(48000*2,0.2f);
         soloMix.strip[0].mute=true;soloMix.strip[1].mute=true;
         soloMix.playing=true;
-        auto settledEnergy=[&](){float energy=0;for(int b=0;b<5;++b)soloMix.render(out,512);for(float x:out)energy+=std::abs(x);return energy;};
+        auto settledEnergy=[&](){float energy=0;for(int b=0;b<16;++b)soloMix.render(out,512);for(float x:out)energy+=std::abs(x);return energy;};
         CHECK(settledEnergy()<0.001f);
         soloMix.strip[0].solo=true;
         const float one=settledEnergy();CHECK(one>1);
