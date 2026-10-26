@@ -1,6 +1,7 @@
 #pragma once
 #include "Theme.h"
 #include <string>
+#include <cstring>
 namespace theme {
 struct Notice {const wchar_t* text;const wchar_t* title;UINT flags;int result=0;HFONT font=nullptr;};
 inline LRESULT CALLBACK noticeProc(HWND h,UINT m,WPARAM w,LPARAM l){
@@ -35,6 +36,9 @@ inline int message(HWND owner,const wchar_t* body,const wchar_t* title,UINT flag
     ShowWindow(h,SW_SHOW);UpdateWindow(h);MSG msg{};
     while(IsWindow(h)){int result=GetMessageW(&msg,nullptr,0,0);if(result<=0){if(result==0)PostQuitMessage(int(msg.wParam));break;}
         if(msg.message==WM_KEYDOWN && (msg.wParam==VK_ESCAPE||msg.wParam==VK_RETURN)){SendMessageW(h,WM_COMMAND,msg.wParam==VK_ESCAPE?IDCANCEL:((flags&MB_YESNO)==MB_YESNO?IDYES:IDOK),0);continue;}
+        if(msg.message==WM_KEYDOWN && msg.wParam=='C' && (GetKeyState(VK_CONTROL)&0x8000)){
+            size_t bytes=(wcslen(body)+1)*sizeof(wchar_t);if(OpenClipboard(h)){auto memory=GlobalAlloc(GMEM_MOVEABLE,bytes);if(memory){auto dest=GlobalLock(memory);if(dest){memcpy(dest,body,bytes);GlobalUnlock(memory);EmptyClipboard();if(!SetClipboardData(CF_UNICODETEXT,memory))GlobalFree(memory);}else GlobalFree(memory);}CloseClipboard();}continue;
+        }
         if(!IsDialogMessageW(h,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
     if(IsWindow(h))DestroyWindow(h);if(enabled){EnableWindow(owner,TRUE);SetActiveWindow(owner);}return n.result;
 }

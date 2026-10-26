@@ -290,7 +290,7 @@ void updateStatus() {
     wchar_t clock[80];swprintf_s(clock,L"%02llu:%02llu / %02llu:%02llu",(unsigned long long)(elapsed/60),(unsigned long long)(elapsed%60),(unsigned long long)(total/60),(unsigned long long)(total%60));setText(clockLabel,clock);
     auto mode=std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");setText(modeLabel,mode.c_str());
     if(preparing.load()){std::lock_guard<std::mutex> lock(progressMutex);setText(status,progressText.c_str());}
-    if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);setText(libraryStatus,progressText.c_str());}
+    if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);setText(libraryStatus,loading?L"Cargando audio preparado...":progressText.c_str());}
     static size_t lastPosition=~size_t(0);static float lastPeak=-1;
     auto position=mixer->position.load();auto peak=mixer->peak.load();
     if(position!=lastPosition){RECT wave{sx(240),sy(68),sx(1252),sy(108)};InvalidateRect(window,&wave,FALSE);lastPosition=position;}

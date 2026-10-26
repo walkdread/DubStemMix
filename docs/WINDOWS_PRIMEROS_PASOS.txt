@@ -1,6 +1,19 @@
 DubStemMix para Windows x64 — alpha 0.5.0
 
-NOVEDADES
+NOVEDADES 0.5.0
+- SIGUIENTE busca la siguiente cancion Lista. Si estas reproduciendo, la actual sigue hasta cargar la nueva, que empieza desde el inicio. No es un crossfade. Si estas en pausa, carga sin reproducir.
+- Espacio: Play/Pausa (sin repetir mientras mantienes la tecla). BANK LEFT: Play. BANK RIGHT: reiniciar. SOLO+MUTE 7: pausa.
+- REC ARM 1-4: Solo de bateria, bajo, otros y voz; sus LEDs reflejan Solo.
+- Se actualiza la asignacion antigua de transporte una vez. Despues puedes personalizarla en Transporte.
+- Clic o arrastra en la onda para cambiar la posicion sincronizada de los cuatro stems. La onda ocupa la anchura disponible.
+- Preferencias > Salida de audio: seleccion de interfaz, guardada entre sesiones. Debes pausar antes de cambiarla.
+- Indicadores pequenos OUT y MIDI. No hay captura de entrada de audio.
+- Avisos y confirmaciones con el estilo oscuro de la consola. Los selectores de archivos y carpetas siguen siendo los de Windows.
+- La primera carga de stems existentes genera playback-48k-v1.pcm (audio float32 sin perdida y onda resumida). Las siguientes cargas evitan reconversion y lecturas duplicadas de los WAV. Ocupa espacio adicional en disco, aproximadamente 92 MB por minuto.
+- Buffers dimensionados al audio real: evita el crecimiento repetido de memoria. Solo se mantiene la cancion actual y, durante SIGUIENTE, temporalmente la nueva. No se precarga toda la lista.
+- La cache comprueba integridad y cambia si se modifican los stems. Si no hay espacio para guardarla, los stems siguen cargando por la ruta normal.
+
+FUNCIONES GENERALES
 - Correccion de repintado: textos solo cuando cambian, forma de onda/medidor por
   regiones y dibujo en memoria antes de mostrarlo para reducir el titileo.
 - Ayuda > Ultimo error de stems muestra el mensaje completo; Ctrl+C lo copia.
@@ -21,7 +34,7 @@ ABRIR
 1. Extrae TODO el ZIP en una carpeta nueva. Conserva la alpha anterior.
 2. Abre DubStemMix.exe desde esa carpeta; deja onnxruntime.dll y las demas DLL
    a su lado. No copies solamente el ejecutable.
-3. Selecciona la salida USB y conecta MIDImix. Baja el volumen de escucha.
+3. En Preferencias > Salida de audio selecciona USB Audio CODEC y conecta MIDImix. Baja el volumen de escucha.
 
 LISTA Y PREPARACION EN SEGUNDO PLANO
 1. En Archivo > Carpeta de datos puedes elegir D:. Cambiarla no mueve datos anteriores.
@@ -33,7 +46,7 @@ LISTA Y PREPARACION EN SEGUNDO PLANO
    Puedes seguir reproduciendo, mezclando, usar MIDI, Siren y efectos mientras tanto.
 5. Cuando la siguiente este Lista, pulsa PAUSA y Cargar seleccionada en la lista
    (tambien doble clic). Espera a que su titulo aparezca en la consola y pulsa PLAY.
-   Nunca reemplazamos automaticamente la cancion que esta sonando.
+   SIGUIENTE permite cargar la proxima Lista mientras suena la actual y cambiar cuando termina de cargar.
 6. La lista se conserva al cerrar. Los stems se guardan en disco, no toda la lista
    en RAM. Los pendientes al reabrir necesitan seleccionar Reintentar.
 7. Pausar cola deja terminar el trabajo actual. Cancelar proceso cancela el actual
@@ -56,9 +69,10 @@ MODELOS Y GPU
 - Los archivos se verifican por SHA256; limite 10 minutos por cancion.
 
 TRANSPORTE MIDIMIX
-- BANK LEFT (nota 25): Pausa.
+- BANK LEFT (nota 25): Play.
 - BANK RIGHT (nota 26): Reiniciar al comienzo y quedar detenido.
-- SOLO del canal 7 (nota 20): Play por defecto; tambien hay PLAY en pantalla.
+- SOLO + MUTE del canal 7 (nota 20): Pausa por defecto. Espacio: Play/Pausa.
+- REC ARM 1-4: Solo de los canales 1-4.
 - Transporte > Aprender boton Play/Pausa/Reiniciar: pulsa un boton que envie nota.
   La asignacion se guarda y reemplaza su accion anterior. No aprende perillas CC.
 - SEND ALL transmite posiciones de los controles, no una nota de transporte.
@@ -105,7 +119,7 @@ precargado: 1 GB. Se usa WASAPI compartido y 48 kHz internos.
 No se promete separacion perfecta: algunas canciones dejan residuos entre stems.
 
 DEPENDENCIAS Y AVISOS
-DSP original y port Windows: MIT. miniaudio 0.11.23 y ONNX Runtime CPU 1.19.2
+DSP original y port Windows: MIT. miniaudio 0.11.23 y ONNX Runtime DirectML/CPU 1.19.2
 se fijan en CMake. Se incluyen avisos en licenses. Los modelos htdemucs_ft de
 Meta/StemSplitio se descargan de Hugging Face en una revision fija y no se
 redistribuyen en el ZIP. Consulta NOTICE para los avisos originales de modelos.
@@ -116,16 +130,3 @@ NOVEDADES 0.4.2
 - Alt + clic en Mute activa Solo. Clic en ese boton cuando indica SOLO lo desactiva.
 - Tambien puedes usar los botones Solo individuales. CLEAR SOLO, encima del master, quita todos los solos y conserva los mutes anteriores.
 - MIDImix: mantener SOLO y pulsar MUTE del canal.
-
-NOVEDADES 0.5.0
-- SIGUIENTE busca la siguiente cancion Lista. Si estas reproduciendo, la actual sigue hasta cargar la nueva, que empieza desde el inicio. No es un crossfade. Si estas en pausa, carga sin reproducir.
-- Espacio: Play/Pausa (sin repetir mientras mantienes la tecla). BANK LEFT: Play. BANK RIGHT: reiniciar. SOLO+MUTE 7: pausa.
-- REC ARM 1-4: Solo de bateria, bajo, otros y voz; sus LEDs reflejan Solo.
-- Se actualiza la asignacion antigua de transporte una vez. Despues puedes personalizarla en Transporte.
-- Clic o arrastra en la onda para cambiar la posicion sincronizada de los cuatro stems. La onda ocupa la anchura disponible.
-- Preferencias > Salida de audio: seleccion de interfaz, guardada entre sesiones. Debes pausar antes de cambiarla.
-- Indicadores pequenos OUT y MIDI. No hay captura de entrada de audio.
-- Avisos y confirmaciones con el estilo oscuro de la consola. Los selectores de archivos y carpetas siguen siendo los de Windows.
-- La primera carga de stems existentes genera playback-48k-v1.pcm (audio float32 sin perdida y onda resumida). Las siguientes cargas evitan reconversion y lecturas duplicadas de los WAV. Ocupa espacio adicional en disco, aproximadamente 92 MB por minuto.
-- Buffers dimensionados al audio real: evita el crecimiento repetido de memoria. Solo se mantiene la cancion actual y, durante SIGUIENTE, temporalmente la nueva. No se precarga toda la lista.
-- La cache comprueba integridad y cambia si se modifican los stems. Si no hay espacio para guardarla, los stems siguen cargando por la ruta normal.

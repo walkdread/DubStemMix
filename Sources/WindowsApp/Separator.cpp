@@ -81,7 +81,7 @@ std::vector<float> decode(const fs::path& file,unsigned rate,std::atomic<bool>& 
     ma_decoder d{};auto config=ma_decoder_config_init(ma_format_f32,2,rate);
     if(ma_decoder_init_file_w(file.c_str(),&config,&d)!=MA_SUCCESS)throw std::runtime_error("No se pudo leer el audio. Prueba un WAV");
     std::vector<float> data;
-    try {ma_uint64 length=0;if(ma_decoder_get_length_in_pcm_frames(&d,&length)==MA_SUCCESS && length && length<=uint64_t(rate)*600)data.reserve(size_t(length)*2);
+    try {ma_uint64 length=0;if(ma_decoder_get_length_in_pcm_frames(&d,&length)==MA_SUCCESS && length && length<=uint64_t(rate)*600)data.reserve(size_t(std::min<ma_uint64>(uint64_t(rate)*600,length+4096))*2);
         float block[8192];for(;;){cancelled(cancel);ma_uint64 read=0;auto r=ma_decoder_read_pcm_frames(&d,block,4096,&read);
         if(r!=MA_SUCCESS && r!=MA_AT_END)throw std::runtime_error("Error de lectura de audio");
         if(data.size()+read*2>size_t(rate)*600*2)throw std::runtime_error("Esta version permite canciones de hasta 10 minutos");
