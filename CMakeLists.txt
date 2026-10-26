@@ -61,10 +61,21 @@ if(DUB_BUILD_WINDOWS_APP)
     SOURCE_SUBDIR no-subproject
   )
   FetchContent_MakeAvailable(miniaudio)
-  add_executable(DubStemMix WIN32 Sources/WindowsApp/Main.cpp Sources/WindowsApp/Miniaudio.c)
+  FetchContent_Declare(onnxruntime
+    URL https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-win-x64-1.19.2.zip
+    SOURCE_SUBDIR no-subproject
+  )
+  FetchContent_MakeAvailable(onnxruntime)
+  add_library(onnxruntime_cpu SHARED IMPORTED)
+  set_target_properties(onnxruntime_cpu PROPERTIES
+    IMPORTED_IMPLIB "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.lib"
+    IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
+    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
+  )
+  add_executable(DubStemMix WIN32 Sources/WindowsApp/Main.cpp Sources/WindowsApp/Miniaudio.c Sources/WindowsApp/Separator.cpp)
   target_include_directories(DubStemMix PRIVATE Sources/WindowsApp "${miniaudio_SOURCE_DIR}")
   target_compile_definitions(DubStemMix PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-  target_link_libraries(DubStemMix PRIVATE DubDSP winmm comctl32 comdlg32 ole32 user32 gdi32)
+  target_link_libraries(DubStemMix PRIVATE DubDSP winmm comctl32 comdlg32 ole32 user32 gdi32 bcrypt winhttp shell32 uuid onnxruntime_cpu)
   if(MSVC)
     target_compile_options(DubStemMix PRIVATE /utf-8)
   endif()
@@ -73,7 +84,14 @@ if(DUB_BUILD_WINDOWS_APP)
     # point. -static keeps the portable package independent of GCC runtime DLLs.
     target_link_options(DubStemMix PRIVATE -municode -static)
   endif()
+  add_custom_command(TARGET DubStemMix POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:DubStemMix>"
+  )
   install(TARGETS DubStemMix RUNTIME DESTINATION .)
+  install(FILES "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll" DESTINATION .)
+  install(FILES "${onnxruntime_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME ONNXRUNTIME-LICENSE.txt)
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ".")
+  include(InstallRequiredSystemLibraries)
   install(FILES LICENSE NOTICE DESTINATION licenses)
   install(FILES "${miniaudio_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME MINIAUDIO-LICENSE.txt)
   install(FILES docs/WINDOWS_PRIMEROS_PASOS.txt DESTINATION . RENAME LEEME.txt)

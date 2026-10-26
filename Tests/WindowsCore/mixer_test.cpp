@@ -1,4 +1,5 @@
 #include "Mixer.h"
+#include "Overlap.h"
 #include <cstdio>
 #define CHECK(x) do {if(!(x)){std::fprintf(stderr,"Failed line %d: %s\n",__LINE__,#x); return 1;}}while(0)
 int main() {
@@ -25,7 +26,25 @@ int main() {
     m.reset(); for (auto& s:m.strip) {s.samples.assign(48000*2,10); s.level=1; for(auto& send:s.send) send=1;}
     m.master=1; m.playing=true;
     for(int b=0;b<50;++b) {m.render(out,512); for(float x:out) CHECK(std::isfinite(x) && std::abs(x)<=1);}
+    // Instruments must sound without stems or playing transport, and stop safely.
+    m.reset();for(auto& s:m.strip)s.samples.clear();
+    m.setInstrument(0,DUB_SIREN_GATE,1);
+    float sirenEnergy=0;for(int b=0;b<8;++b){m.render(out,512);for(float x:out)sirenEnergy+=std::abs(x);}
+    CHECK(sirenEnergy>1);CHECK(!m.playing.load());
+    m.reset();m.setInstrument(1,DUB_SYNDRUM_HIT,1);
+    float hitEnergy=0;for(int b=0;b<8;++b){m.render(out,512);for(float x:out)hitEnergy+=std::abs(x);}
+    CHECK(hitEnergy>0.1f);
+    m.reset();m.setInstrument(0,DUB_SIREN_GATE,1);m.strip[4].samples.assign(48000*2,0);
+    for(int b=0;b<4;++b){m.render(out,512);for(float x:out)CHECK(x==0);} // loaded stem disables siren
+    m.strip[4].samples.clear();m.panic();
+    for(int b=0;b<500;++b)m.render(out,512);
+    for(float x:out)CHECK(std::isfinite(x) && std::abs(x)<0.001f);
+    // Weighted overlap must reconstruct a constant without gaps, including the padded tail.
+    const size_t total=dubwin::modelFrames+dubwin::stride+37;
+    dubwin::Accumulator accumulation(total);std::vector<float> ones(dubwin::modelFrames,1);
+    for(size_t start=0;start<total;start+=dubwin::stride)accumulation.add(ones.data(),ones.data(),start,std::min(dubwin::modelFrames,total-start));
+    accumulation.normalize();for(float x:accumulation.samples)CHECK(std::abs(x-1)<1e-6);
     dubwin::Pickup p; CHECK(!p.accept(0,0.5f)); CHECK(!p.accept(40,0.5f)); CHECK(p.accept(80,0.5f));
     p.reset(); CHECK(!p.accept(127,0.5f)); CHECK(p.accept(64,0.5f));
-    std::puts("PASS: silence, sample alignment, pause, reset, EOF, overload and MIDI pickup");
+    std::puts("PASS: silence, sample alignment, pause, reset, EOF, overload, instruments, panic, overlap-add and MIDI pickup");
 }

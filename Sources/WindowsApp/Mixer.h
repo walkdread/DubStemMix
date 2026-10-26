@@ -26,6 +26,8 @@ struct Strip {
 class Mixer {
     std::array<DubEffect*, buses> fx{};
     DubEffect* limiter = nullptr;
+    std::array<DubEffect*, 2> instruments{};
+    float voice[2][quantum]{};
     uint64_t cursor = 0;
     float smoothMaster = 0;
     std::array<float, buses> smoothReturn{};
@@ -38,21 +40,44 @@ public:
     std::atomic<uint64_t> position{0};
     Mixer() {
         fx[0] = dub_effect_create(DUB_EFFECT_DELAY);
-        fx[1] = dub_effect_create(DUB_EFFECT_PLATE);
-        fx[2] = dub_effect_create(DUB_EFFECT_PHASER);
+        fx[1] = dub_effect_create(DUB_EFFECT_REVERB_BUS);
+        fx[2] = dub_effect_create(DUB_EFFECT_BUS3);
         limiter = dub_effect_create(DUB_EFFECT_LIMITER);
-        if (!fx[0] || !fx[1] || !fx[2] || !limiter) {
+        instruments[0] = dub_effect_create(DUB_EFFECT_SIREN);
+        instruments[1] = dub_effect_create(DUB_EFFECT_SYNDRUM);
+        if (!fx[0] || !fx[1] || !fx[2] || !limiter || !instruments[0] || !instruments[1]) {
             for (auto* e : fx) dub_effect_destroy(e);
             dub_effect_destroy(limiter);
+            for (auto* e : instruments) dub_effect_destroy(e);
             throw std::runtime_error("No hay memoria para los efectos");
         }
+        strip[4].send[0]=0.5f; strip[5].send[0]=0.5f;
         reset();
     }
-    ~Mixer() { for (auto* e : fx) dub_effect_destroy(e); dub_effect_destroy(limiter); }
+    ~Mixer() { for (auto* e : fx) dub_effect_destroy(e); dub_effect_destroy(limiter); for (auto* e : instruments) dub_effect_destroy(e); }
     Mixer(const Mixer&) = delete;
     Mixer& operator=(const Mixer&) = delete;
+    void setInstrument(int index, int parameter, float value) noexcept {
+        if (index>=0 && index<2) dub_effect_set(instruments[index],parameter,value);
+    }
+    void setEffect(int bus, int parameter, float value) noexcept {
+        if (bus>=0 && bus<buses) dub_effect_set(fx[bus],parameter,value);
+    }
+    void releaseInstruments() noexcept {
+        setInstrument(0,DUB_SIREN_GATE,0); setInstrument(0,DUB_SIREN_RISE,0);
+        setInstrument(1,DUB_SYNDRUM_ROLLING,0); setInstrument(1,DUB_SYNDRUM_HIT,0);
+    }
+    void panic() noexcept {
+        releaseInstruments();
+        for (auto* e : instruments) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
+        for (auto* e : fx) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
+        setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
+    }
+    bool isInstrument(int t) const { return t>=4 && t<6 && strip[t].samples.empty(); }
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
+        releaseInstruments();
+        for (auto* e : instruments) dub_effect_prepare(e,rate);
         playing.store(false); cursor = 0; position.store(0); peak.store(0);
         smoothMaster = 0; smoothReturn.fill(0);
         for (auto& s : strip) { s.smoothLevel = 0; s.smoothSend.fill(0); }
@@ -72,7 +97,13 @@ public:
             bool anySolo = false;
             for (auto& s : strip) anySolo |= s.solo.load(std::memory_order_relaxed);
             const bool run = playing.load(std::memory_order_relaxed);
-            for (auto& s : strip) {
+            for (int t=0;t<tracks;++t) {
+                auto& s=strip[t];
+                const bool instrument=isInstrument(t);
+                if(instrument) {
+                    for(auto& channel:voice) std::fill_n(channel,n,0.0f);
+                    dub_effect_process(instruments[t-4],voice[0],voice[1],voice[0],voice[1],static_cast<int>(n));
+                }
                 const float target = (s.mute.load() || (anySolo && !s.solo.load())) ? 0 : s.level.load();
                 std::array<float, buses> targetSend{};
                 for (int b = 0; b < buses; ++b) targetSend[b] = s.send[b].load();
@@ -80,8 +111,8 @@ public:
                     s.smoothLevel += (target - s.smoothLevel) * (1.0f/480.0f);
                     const uint64_t p = (cursor+i)*2;
                     const bool valid = run && p+1 < s.samples.size();
-                    const float l = valid ? s.samples[static_cast<size_t>(p)]*s.smoothLevel : 0;
-                    const float r = valid ? s.samples[static_cast<size_t>(p+1)]*s.smoothLevel : 0;
+                    const float l = (instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0))*s.smoothLevel;
+                    const float r = (instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0))*s.smoothLevel;
                     dry[0][i] += l; dry[1][i] += r;
                     for (int b = 0; b < buses; ++b) {
                         s.smoothSend[b] += (targetSend[b]-s.smoothSend[b])*(1.0f/480.0f);
