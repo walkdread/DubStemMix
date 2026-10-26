@@ -1,0 +1,35 @@
+name: Windows executable (alpha)
+on:
+  push:
+    branches: ["port/windows-alpha"]
+  pull_request:
+    paths:
+      - "Sources/DubDSP/**"
+      - "Sources/WindowsApp/**"
+      - "Tests/WindowsCore/**"
+      - "Tests/PortableDSP/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/windows-alpha.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native Windows application
+        run: cmake -S . -B build-windows -G "Visual Studio 17 2022" -A x64 -T ClangCL -DDUB_BUILD_WINDOWS_APP=ON
+      - name: Compile
+        run: cmake --build build-windows --config Release --parallel 2
+      - name: Test DSP and mixer
+        run: ctest --test-dir build-windows -C Release --output-on-failure
+      - name: Package portable application
+        run: cmake --install build-windows --config Release --prefix package/DubStemMix-Windows-alpha
+      - name: Upload downloadable application
+        uses: actions/upload-artifact@v4
+        with:
+          name: DubStemMix-Windows-x64-alpha
+          path: package/DubStemMix-Windows-alpha/
+          if-no-files-found: error
+          retention-days: 30
