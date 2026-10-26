@@ -314,7 +314,7 @@ void buildUI() {
     control(L"BUTTON",L"Reconectar MIDI",WS_TABSTOP,10,286,128,28,idMidi);
     midiLabel=control(L"STATIC",L"",0,12,324,122,70);
     control(L"BUTTON",L"Carpeta de datos",WS_TABSTOP,10,382,128,28,idDataFolder);
-    control(L"STATIC",L"STEMS + INSTRUMENTOS\n\n1-4: stems\n5: Siren\n6: Syndrum\n7-8: efectos\n\nArrastra las perillas arriba / abajo.\n\nCargar permite abrir stems existentes.",0,12,420,122,245);
+    control(L"STATIC",L"STEMS + INSTRUMENTOS\n\n1-4: stems\n5: Siren\n6: Syndrum\n7-8: efectos\n\nPerillas: arrastra arriba / abajo.\n\nCargar: stems existentes.",0,12,420,122,245);
     control(L"BUTTON",L"PLAY",WS_TABSTOP,156,15,70,34,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,234,15,70,34,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,312,15,90,34,idStop);
     songLabel=control(L"STATIC",L"NUEVA VERSION",SS_ENDELLIPSIS,420,22,380,24);
     control(L"BUTTON",L"PANIC",WS_TABSTOP,970,15,90,34,idPanic);
@@ -339,7 +339,7 @@ void buildUI() {
     control(L"STATIC",L"RETORNOS",SS_CENTER,758,340,182,20);
     returns[0]=dial(777,470,42,175,idReturn,0.5f,true);returns[1]=dial(877,470,42,175,idReturn+1,0.5f,true);
     control(L"STATIC",L"MASTER",SS_CENTER,964,218,96,20);masterSlider=dial(990,270,42,225,idMaster,0.5f,true);
-    control(L"STATIC",L"PHASER RETURN",SS_CENTER,959,530,106,20);returns[2]=dial(982,559,58,62,idReturn+2,0.5f);
+    control(L"STATIC",L"PHS RETURN",SS_CENTER,959,530,106,20);returns[2]=dial(982,559,58,62,idReturn+2,0.5f);
     status=control(L"STATIC",L"",0,12,706,1050,28);
     SendMessageW(deviceList,CB_SETDROPPEDWIDTH,450,0);
     enumerateAudio();connectMidi();

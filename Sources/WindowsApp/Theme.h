@@ -45,7 +45,8 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
 inline void registerDial(HINSTANCE instance){WNDCLASSW c{};c.hInstance=instance;c.lpfnWndProc=dialProc;c.lpszClassName=L"DubDial";c.hCursor=LoadCursorW(nullptr,IDC_HAND);RegisterClassW(&c);}
 inline void button(DRAWITEMSTRUCT* item){auto dc=item->hDC;auto r=item->rcItem;FillRect(dc,&r,surface());
     bool down=(item->itemState&ODS_SELECTED)!=0;auto p=CreatePen(PS_SOLID,1,down?gold:RGB(74,65,49));auto old=SelectObject(dc,p);auto b=SelectObject(dc,GetStockObject(NULL_BRUSH));RoundRect(dc,r.left,r.top,r.right,r.bottom,6,6);SelectObject(dc,old);SelectObject(dc,b);DeleteObject(p);
-    wchar_t label[128];GetWindowTextW(item->hwndItem,label,128);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,down?gold:text);DrawTextW(dc,label,-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+    auto font=reinterpret_cast<HFONT>(SendMessageW(item->hwndItem,WM_GETFONT,0,0));auto oldFont=SelectObject(dc,font?font:GetStockObject(DEFAULT_GUI_FONT));
+    wchar_t label[128];GetWindowTextW(item->hwndItem,label,128);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,down?gold:text);DrawTextW(dc,label,-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);SelectObject(dc,oldFont);
     if(item->itemState&ODS_FOCUS){InflateRect(&r,-3,-3);DrawFocusRect(dc,&r);}
 }
 }
