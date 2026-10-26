@@ -9,6 +9,17 @@ constexpr COLORREF background=RGB(20,18,16),panel=RGB(32,29,25),text=RGB(235,225
 constexpr COLORREF gold=RGB(219,166,52),green=RGB(125,155,83),red=RGB(203,83,52);
 inline HBRUSH bg(){static HBRUSH b=CreateSolidBrush(background);return b;}
 inline HBRUSH surface(){static HBRUSH b=CreateSolidBrush(panel);return b;}
+// Paint offscreen, then present once; never expose the background-clearing step.
+struct PaintBuffer {
+    HDC target{},dc{};HBITMAP bitmap{};HGDIOBJ previous{};int width{},height{};
+    PaintBuffer(HDC out,RECT r):target(out),width(std::max(1,int(r.right))),height(std::max(1,int(r.bottom))){
+        dc=CreateCompatibleDC(out);if(dc)bitmap=CreateCompatibleBitmap(out,width,height);
+        if(bitmap)previous=SelectObject(dc,bitmap);else {if(dc)DeleteDC(dc);dc=target;}
+    }
+    void present(){if(bitmap)BitBlt(target,0,0,width,height,dc,0,0,SRCCOPY);}
+    ~PaintBuffer(){if(bitmap){SelectObject(dc,previous);DeleteObject(bitmap);DeleteDC(dc);}}
+    PaintBuffer(const PaintBuffer&)=delete;PaintBuffer& operator=(const PaintBuffer&)=delete;
+};
 inline Gdiplus::Color color(COLORREF c){return Gdiplus::Color(255,GetRValue(c),GetGValue(c),GetBValue(c));}
 inline void card(HDC dc,RECT r,COLORREF fill,COLORREF stroke){
     Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -37,7 +48,7 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
     case WM_MOUSEWHEEL:changed(h,*d,d->value+(GET_WHEEL_DELTA_WPARAM(w)>0?2:-2));return 0;
     case WM_KEYDOWN:if(w==VK_UP||w==VK_RIGHT)changed(h,*d,d->value+1);if(w==VK_DOWN||w==VK_LEFT)changed(h,*d,d->value-1);return 0;
     case WM_ERASEBKGND:return 1;
-    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);FillRect(dc,&r,surface());
+    case WM_PAINT:{PAINTSTRUCT ps;auto target=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);PaintBuffer paint(target,r);auto dc=paint.dc;FillRect(dc,&r,surface());
         int width=r.right,height=r.bottom;const int id=GetDlgCtrlID(h);COLORREF accent=gold;
         if(id>=500 && id<518){int bus=(id-500)%3;accent=bus==1?green:(bus==2?red:gold);}
         if(id==514 || id==517)accent=gold;
@@ -63,7 +74,7 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
             wchar_t v[16];swprintf_s(v,L"%d",d->value);RECT label{0,height-16,width,height};SetBkMode(dc,TRANSPARENT);SetTextColor(dc,muted);DrawTextW(dc,v,-1,&label,DT_CENTER|DT_SINGLELINE);
         }
         SelectObject(dc,previous);
-        if(GetFocus()==h){RECT focus=r;InflateRect(&focus,-1,-1);DrawFocusRect(dc,&focus);}EndPaint(h,&ps);return 0;}
+        if(GetFocus()==h){RECT focus=r;InflateRect(&focus,-1,-1);DrawFocusRect(dc,&focus);}paint.present();EndPaint(h,&ps);return 0;}
     case WM_NCDESTROY:delete d;SetWindowLongPtrW(h,GWLP_USERDATA,0);break;
     }return DefWindowProcW(h,m,w,l);
 }

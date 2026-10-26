@@ -50,9 +50,10 @@ std::thread loader;
 std::atomic<bool> loading{false},loadDone{false},cancelLoad{false};
 std::wstring loadError,loadTitle;
 std::filesystem::path jobCache;
+std::wstring jobBackend,lastStemError;
 std::vector<std::pair<int,std::wstring>> adapters;
 constexpr int idLibrary=800,idLoadReady=801,idRemoveSong=802,idRetrySong=803,idQueuePause=804,
-    idFast=810,idQuality=811,idCPU=812,idGPU=820,idLearn=850,idAbout=860,idExit=861;
+    idFast=810,idQuality=811,idCPU=812,idGPU=820,idLearn=850,idAbout=860,idExit=861,idLastError=862;
 
 std::array<std::vector<float>,4> preparedStems;
 float instrumentValues[2][2]={{0.5f,0.45f},{0.5f,0.5f}};
@@ -80,6 +81,11 @@ bool soloHeld=false;
 bool pressed[128]{};
 dubwin::Pickup levelPickup[6],sendPickup[6][3],returnPickup[3],masterPickup;
 
+// Native static controls repaint even for identical text. Avoid timer-induced erasing.
+void setText(HWND h,const wchar_t* value){
+    if(!h)return;int n=GetWindowTextLengthW(h);std::wstring old(size_t(n)+1,L'\0');GetWindowTextW(h,old.data(),n+1);old.resize(n);
+    if(old!=value)SetWindowTextW(h,value);
+}
 void error(const wchar_t* text) {MessageBoxW(window,text,L"DubStemMix — Windows alpha",MB_OK|MB_ICONWARNING);}
 std::wstring wide(const char* text) {
     int n=MultiByteToWideChar(CP_UTF8,0,text,-1,nullptr,0);
@@ -101,8 +107,8 @@ HWND dial(int x,int y,int w,int h,int id,float value,bool fader=false) {
 void led(int note,bool on) {if(midiOut)midiOutShortMsg(midiOut,0x90u|(static_cast<DWORD>(note)<<8)|(on?127u<<16:0));}
 void syncButtons(int t) {
     if(mixer->isInstrument(t)){syncInstrumentUI(t);return;}
-    SetWindowTextW(mutes[t],mixer->strip[t].mute.load()?L"MUTED":L"MUTE");
-    SetWindowTextW(solos[t],mixer->strip[t].solo.load()?L"SOLO ON":L"SOLO");
+    setText(mutes[t],mixer->strip[t].mute.load()?L"MUTED":L"MUTE");
+    setText(solos[t],mixer->strip[t].solo.load()?L"SOLO ON":L"SOLO");
     led(1+3*t,mixer->strip[t].mute.load()); led(2+3*t,mixer->strip[t].solo.load());
 }
 void resetPickup() {
@@ -164,7 +170,7 @@ void connectMidi() {
         }else midiIn=nullptr;
         break;}}
     for(int t=0;t<6;++t)syncButtons(t);
-    SetWindowTextW(midiLabel,midiIn?L"MIDImix conectado (pickup activo)":L"MIDImix desconectado.\nReconecta en Preferencias.");
+    setText(midiLabel,midiIn?L"MIDImix conectado (pickup activo)":L"MIDImix desconectado.\nReconecta en Preferencias.");
 }
 void midiValue(int value,std::atomic<float>& target,dubwin::Pickup& pickup,HWND h) {
     if(pickup.accept(value,target.load())){target.store(value/127.0f);SendMessageW(h,TBM_SETPOS,TRUE,value);}
@@ -174,7 +180,7 @@ void handleMidi(DWORD message) {
     if(type==0x90 && d2 && learnTransport>=0){
         for(int i=0;i<3;++i)if(i!=learnTransport && transportNotes[i]==d1)transportNotes[i]=-1;
         transportNotes[learnTransport]=d1;learnTransport=-1;saveLibrary();
-        SetWindowTextW(midiLabel,L"Boton aprendido y guardado");return;
+        setText(midiLabel,L"Boton aprendido y guardado");return;
     }
     if(type==0xB0){
         if(d1==62)midiValue(d2,mixer->master,masterPickup,masterSlider);
@@ -225,7 +231,7 @@ void loadTrack(int track) {
     stopAudio();mixer->reset();resetGestures();
     ma_decoder decoder{};auto cfg=ma_decoder_config_init(ma_format_f32,2,dubwin::rate);
     if(ma_decoder_init_file_w(path,&cfg,&decoder)!=MA_SUCCESS){error(L"No se pudo leer el archivo. Prueba con un WAV PCM.");return;}
-    SetWindowTextW(status,L"Cargando y convirtiendo audio... Espera a que termine.");UpdateWindow(window);
+    setText(status,L"Cargando y convirtiendo audio... Espera a que termine.");UpdateWindow(window);
     bool ok=true;std::vector<float> data;
     // Bound decoded song data to 1 GiB, leaving ample RAM for Windows on a 16 GiB PC.
     size_t used=0;for(int i=0;i<6;++i)if(i!=track)used+=mixer->strip[i].samples.size();
@@ -244,8 +250,8 @@ void loadTrack(int track) {
     if(!ok || data.empty()){error(L"No se pudo cargar: archivo invalido o limite total de audio (1 GB) excedido. La pista anterior se conserva.");return;}
     mixer->strip[track].samples=std::move(data);mixer->strip[track].mute=false;mixer->strip[track].solo=false;
     syncInstrumentUI(track);
-    auto name=std::filesystem::path(path).filename().wstring(); SetWindowTextW(names[track],name.c_str());
-    SetWindowTextW(status,L"Pista cargada. Carga las otras pistas y pulsa Reproducir.");
+    auto name=std::filesystem::path(path).filename().wstring(); setText(names[track],name.c_str());
+    setText(status,L"Pista cargada. Carga las otras pistas y pulsa Reproducir.");InvalidateRect(window,nullptr,FALSE);
 }
 void updateStatus() {
     pollPreparation();
@@ -254,25 +260,28 @@ void updateStatus() {
     for(int t=0;t<6;++t){theme::active(mutes[t],mixer->isInstrument(t)?instrumentOn[t-4][0]:mixer->strip[t].mute.load());theme::active(solos[t],mixer->isInstrument(t)?instrumentOn[t-4][1]:mixer->strip[t].solo.load());}
     for(int i=0;i<6;++i)theme::active(fxButtons[i],fxOn[i]);
     auto elapsed=mixer->position.load()/dubwin::rate,total=mixer->totalFrames()/dubwin::rate;
-    wchar_t clock[80];swprintf_s(clock,L"%02llu:%02llu / %02llu:%02llu",(unsigned long long)(elapsed/60),(unsigned long long)(elapsed%60),(unsigned long long)(total/60),(unsigned long long)(total%60));SetWindowTextW(clockLabel,clock);
-    auto mode=std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");SetWindowTextW(modeLabel,mode.c_str());
-    if(preparing.load()){std::lock_guard<std::mutex> lock(progressMutex);SetWindowTextW(status,progressText.c_str());}
-    if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);SetWindowTextW(libraryStatus,progressText.c_str());}
-    InvalidateRect(window,nullptr,FALSE);
+    wchar_t clock[80];swprintf_s(clock,L"%02llu:%02llu / %02llu:%02llu",(unsigned long long)(elapsed/60),(unsigned long long)(elapsed%60),(unsigned long long)(total/60),(unsigned long long)(total%60));setText(clockLabel,clock);
+    auto mode=std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");setText(modeLabel,mode.c_str());
+    if(preparing.load()){std::lock_guard<std::mutex> lock(progressMutex);setText(status,progressText.c_str());}
+    if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);setText(libraryStatus,progressText.c_str());}
+    static size_t lastPosition=~size_t(0);static float lastPeak=-1;
+    auto position=mixer->position.load();auto peak=mixer->peak.load();
+    if(position!=lastPosition){RECT wave{sx(240),sy(68),sx(1252),sy(108)};InvalidateRect(window,&wave,FALSE);lastPosition=position;}
+    if(peak!=lastPeak){RECT meter{sx(1230),sy(535),sx(1242),sy(706)};InvalidateRect(window,&meter,FALSE);lastPeak=peak;}
     if(deviceReady && mixer->playing.load() && !ma_device_is_started(&device)){
         mixer->playing=false; error(L"Se interrumpio la salida de audio. Pulsa Detener y Actualizar audio para reconectar.");
     }
     const auto seconds=mixer->position.load()/dubwin::rate;
-    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.4 — instrumentos + preparacion",
+    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.4.1 — instrumentos + preparacion",
         mixer->playing.load()?L"REPRODUCIENDO":L"PAUSA / DETENIDO",
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
-    if(!preparing.load())SetWindowTextW(status,buffer);
+    if(!preparing.load())setText(status,buffer);
 }
 void resetGestures() {
     for(auto& row:instrumentOn)for(auto& on:row)on=false;
     for(int i=0;i<4;++i)fxOn[i]=false;
     mixer->releaseInstruments();mixer->setEffect(0,DUB_DELAY_HOLD,0);mixer->setEffect(0,DUB_DELAY_DOUBLE,0);mixer->setEffect(0,DUB_DELAY_STOP,0);
-    const wchar_t* names[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP"};for(int i=0;i<4;++i)if(fxButtons[i])SetWindowTextW(fxButtons[i],names[i]);
+    const wchar_t* names[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP"};for(int i=0;i<4;++i)if(fxButtons[i])setText(fxButtons[i],names[i]);
     for(int t=4;t<6;++t)if(mutes[t])syncInstrumentUI(t);
 }
 bool ensureAudio() {
@@ -284,14 +293,14 @@ void syncInstrumentUI(int t) {
     const bool inst=mixer->isInstrument(t);
     const wchar_t* labels[]={L"DELAY",L"REVERB",L"PHASER"};
     for(int b=0;b<3;++b){
-        SetWindowTextW(sendLabels[t][b],inst?(b==0?L"PITCH":(b==1?(t==4?L"RATE":L"DECAY"):L"DELAY")):labels[b]);
+        setText(sendLabels[t][b],inst?(b==0?L"PITCH":(b==1?(t==4?L"RATE":L"DECAY"):L"DELAY")):labels[b]);
         const float v=inst && b<2?instrumentValues[t-4][b]:mixer->strip[t].send[inst?0:b].load();SendMessageW(sends[t][b],TBM_SETPOS,TRUE,static_cast<int>(std::lround(v*127)));
     }
-    if(inst){SetWindowTextW(names[t],t==4?L"DUB SIREN":L"SYNDRUM");
-        SetWindowTextW(mutes[t],t==4?(instrumentOn[0][0]?L"HOLD ON":L"HOLD"):L"HIT");
-        SetWindowTextW(solos[t],t==4?(instrumentOn[0][1]?L"RISE ON":L"RISE"):(instrumentOn[1][1]?L"ROLL ON":L"ROLL"));
+    if(inst){setText(names[t],t==4?L"DUB SIREN":L"SYNDRUM");
+        setText(mutes[t],t==4?(instrumentOn[0][0]?L"HOLD ON":L"HOLD"):L"HIT");
+        setText(solos[t],t==4?(instrumentOn[0][1]?L"RISE ON":L"RISE"):(instrumentOn[1][1]?L"ROLL ON":L"ROLL"));
         led(1+3*t,instrumentOn[t-4][0]);led(3+3*t,instrumentOn[t-4][1]);
-    }else {SetWindowTextW(mutes[t],mixer->strip[t].mute?L"MUTED":L"MUTE");SetWindowTextW(solos[t],mixer->strip[t].solo?L"SOLO ON":L"SOLO");}
+    }else {setText(mutes[t],mixer->strip[t].mute?L"MUTED":L"MUTE");setText(solos[t],mixer->strip[t].solo?L"SOLO ON":L"SOLO");}
 }
 void instrumentAction(int index,int gesture,bool on) {
     if(!mixer->isInstrument(index+4))return;
@@ -307,12 +316,25 @@ void effectAction(int action,bool on) {
     fxOn[action]=on;
     if(action==0)mixer->setEffect(0,DUB_DELAY_HOLD,on?1:0);
     if(action==1)mixer->setEffect(0,DUB_DELAY_DOUBLE,on?1:0);
-    if(action==2 && on){mixer->setEffect(1,DUB_SWITCH_SELECT,1);mixer->setEffect(1,DUB_SPRING_CRASH,1);fxOn[4]=true;SetWindowTextW(fxButtons[4],L"SPRING");fxOn[2]=false;}
+    if(action==2 && on){mixer->setEffect(1,DUB_SWITCH_SELECT,1);mixer->setEffect(1,DUB_SPRING_CRASH,1);fxOn[4]=true;setText(fxButtons[4],L"SPRING");fxOn[2]=false;}
     if(action==3)mixer->setEffect(0,DUB_DELAY_STOP,on?1:0);
-    if(action==4){mixer->setEffect(1,DUB_SWITCH_SELECT,on?1:0);SetWindowTextW(fxButtons[4],on?L"SPRING":L"PLATE");}
-    if(action==5){mixer->setEffect(2,DUB_SWITCH_SELECT,on?1:0);SetWindowTextW(fxButtons[5],on?L"FLANGER":L"PHASER");}
+    if(action==4){mixer->setEffect(1,DUB_SWITCH_SELECT,on?1:0);setText(fxButtons[4],on?L"SPRING":L"PLATE");}
+    if(action==5){mixer->setEffect(2,DUB_SWITCH_SELECT,on?1:0);setText(fxButtons[5],on?L"FLANGER":L"PHASER");}
     const wchar_t* titles[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP"};
-    if(action<4){auto label=std::wstring(titles[action])+(fxOn[action]?L" ON":L"");SetWindowTextW(fxButtons[action],label.c_str());}
+    if(action<4){auto label=std::wstring(titles[action])+(fxOn[action]?L" ON":L"");setText(fxButtons[action],label.c_str());}
+}
+void recordStemError(const std::wstring& details){
+    lastStemError=details;
+    try{auto folder=dubwin::configRoot();std::filesystem::create_directories(folder);
+        int size=WideCharToMultiByte(CP_UTF8,0,details.c_str(),int(details.size()),nullptr,0,nullptr,nullptr);
+        std::string utf8(size,'\0');WideCharToMultiByte(CP_UTF8,0,details.c_str(),int(details.size()),utf8.data(),size,nullptr,nullptr);
+        std::ofstream out(folder/L"last-stem-error.txt",std::ios::binary|std::ios::trunc);out<<utf8;
+    }catch(...){/* The on-screen diagnostic remains available if disk writing fails. */}
+}
+void showStemError(){
+    if(lastStemError.empty()){try{std::ifstream in(dubwin::configRoot()/L"last-stem-error.txt",std::ios::binary);std::string data((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());if(!data.empty())lastStemError=wide(data.c_str());}catch(...){} }
+    auto message=lastStemError.empty()?L"No hay errores de stems registrados en esta version.":lastStemError+L"\n\nPuedes copiar este mensaje con Ctrl+C.";
+    MessageBoxW(window,message.c_str(),L"Detalle del error de stems",MB_OK|MB_ICONINFORMATION);
 }
 void setProgress(const std::wstring& text){std::lock_guard<std::mutex> lock(progressMutex);progressText=text;}
 // The queue owns paths only. A preparation worker never touches the live mixer.
@@ -346,6 +368,7 @@ void runNext(){
     for(size_t i=0;i<songs.size();++i)if(songs[i].state==L"En cola"){
         activeJob=int(i);songs[i].state=L"Analizando";refreshLibrary();
         const auto source=songs[i].source;const dubwin::SeparationOptions options{songs[i].fast,gpuDevice};
+        jobBackend=L"CPU";if(gpuDevice>=0){jobBackend=L"GPU DirectML #"+std::to_wstring(gpuDevice);for(auto& adapter:adapters)if(adapter.first==gpuDevice)jobBackend+=L" / "+adapter.second;}
         preparing=true;cancelPreparation=false;preparationDone=false;preparationError.clear();jobCache.clear();
         preparation=std::thread([source,options]{
             SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
@@ -377,18 +400,23 @@ void requestLoad(){
 void pollPreparation(){
     if(loading && loadDone.load(std::memory_order_acquire) && !mixer->playing){
         if(loader.joinable())loader.join();loading=false;
-        if(!loadError.empty())error(loadError.c_str());
+        if(!loadError.empty()){recordStemError(L"Carga: "+loadTitle+L"\nError: "+loadError);error(loadError.c_str());}
         else {stopAudio();mixer->reset();resetGestures();
             const wchar_t* titles[]={L"VOZ",L"BATERIA",L"BAJO",L"OTROS"};
             for(int t=0;t<6;++t){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();
-                mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)SetWindowTextW(names[t],titles[t]);}
-            SetWindowTextW(songLabel,loadTitle.c_str());resetPickup();setProgress(L"Cancion cargada. Pulsa PLAY.");}
+                mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)setText(names[t],titles[t]);}
+            setText(songLabel,loadTitle.c_str());InvalidateRect(window,nullptr,FALSE);resetPickup();setProgress(L"Cancion cargada. Pulsa PLAY.");}
     }
     if(preparing && preparationDone.load(std::memory_order_acquire)){
         if(preparation.joinable())preparation.join();preparing=false;
         auto& song=songs[activeJob];song.state=preparationError.empty()?L"Lista":(cancelPreparation?L"Cancelada":L"Error");
         if(preparationError.empty())song.cache=jobCache;
-        setProgress(preparationError.empty()?L"Stems listos. Selecciona y carga desde la lista.":preparationError+L" — usa CPU en Preferencias si fallo GPU, y Reintentar.");
+        else if(!cancelPreparation){
+            SYSTEMTIME t{};GetLocalTime(&t);wchar_t stamp[64];swprintf_s(stamp,L"%04u-%02u-%02u %02u:%02u:%02u",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
+            recordStemError(std::wstring(L"DubStemMix 0.4.1 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
+            queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
+        }
+        setProgress(preparationError.empty()?L"Stems listos. Selecciona y carga desde la lista.":L"Analisis detenido. Abre Ayuda > Ultimo error de stems para ver el detalle.");
         activeJob=-1;saveLibrary();refreshLibrary();
     }
     runNext();
@@ -403,6 +431,7 @@ void buildMenus(){
     AppendMenuW(prefs,MF_STRING,idAudio,L"Actualizar salidas de audio");AppendMenuW(prefs,MF_STRING,idMidi,L"Reconectar MIDImix");
     AppendMenuW(transport,MF_STRING,idPlay,L"Play");AppendMenuW(transport,MF_STRING,idPause,L"Pausa");AppendMenuW(transport,MF_STRING,idStop,L"Reiniciar");
     AppendMenuW(transport,MF_STRING,idLearn,L"Aprender boton Play...");AppendMenuW(transport,MF_STRING,idLearn+1,L"Aprender boton Pausa...");AppendMenuW(transport,MF_STRING,idLearn+2,L"Aprender boton Reiniciar...");
+    AppendMenuW(help,MF_STRING,idLastError,L"Ultimo error de stems...");
     AppendMenuW(help,MF_STRING,idAbout,L"Uso y limitaciones");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(file),L"Archivo");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(prefs),L"Preferencias");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(transport),L"Transporte");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(help),L"Ayuda");
     auto old=GetMenu(window);SetMenu(window,bar);if(old)DestroyMenu(old);DrawMenuBar(window);
 }
@@ -423,7 +452,7 @@ void relayout(){
 }
 void buildUI(){
     font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"CONSOLA DUB / 0.4",0,16,54,200,18);
+    control(L"STATIC",L"CONSOLA DUB / 0.4.1",0,16,54,200,18);
     control(L"BUTTON",L"+  AGREGAR CANCION",WS_TABSTOP,16,94,194,36,idSong);
     control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
     modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
@@ -498,7 +527,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_ERASEBKGND:return 1;
     case WM_SIZE:if(uiReady && wp!=SIZE_MINIMIZED)relayout();return 0;
     case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={1000,640};info->ptMaxTrackSize={8192,8192};return 0;}
-    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);paintConsole(dc);EndPaint(h,&ps);return 0;}
+    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);theme::PaintBuffer paint(dc,r);paintConsole(paint.dc);paint.present();EndPaint(h,&ps);return 0;}
     case WM_MEASUREITEM:{auto item=reinterpret_cast<MEASUREITEMSTRUCT*>(lp);if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item->CtlID==900)drawSong(item);else theme::button(item);return TRUE;}
     case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);int id=GetDlgCtrlID(reinterpret_cast<HWND>(lp));SetTextColor(dc,(id==924||id==925)?theme::red:(id==926?theme::gold:(id==927?theme::green:theme::text)));SetBkMode(dc,TRANSPARENT);
@@ -522,25 +551,26 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_COMMAND:{int id=LOWORD(wp);
         int selected=int(SendMessageW(songList,LB_GETCURSEL,0,0));
         if(id==idLoadReady || (id==900 && HIWORD(wp)==LBN_DBLCLK)){requestLoad();return 0;}
-        if(id==idQueuePause){queuePaused=!queuePaused;SetWindowTextW(GetDlgItem(window,idQueuePause),queuePaused?L"Seguir cola":L"Pausar cola");return 0;}
+        if(id==idQueuePause){queuePaused=!queuePaused;setText(GetDlgItem(window,idQueuePause),queuePaused?L"Seguir cola":L"Pausar cola");return 0;}
         if(id==idRemoveSong && selected>=0 && size_t(selected)<songs.size()){
             if(preparing){error(L"Espera o cancela el analisis antes de quitar entradas.");return 0;}songs.erase(songs.begin()+selected);saveLibrary();refreshLibrary();return 0;}
         if(id==idRetrySong && selected>=0 && size_t(selected)<songs.size() && selected!=activeJob){songs[selected].state=L"En cola";refreshLibrary();runNext();return 0;}
 
-        if(id==idCancel){queuePaused=true;SetWindowTextW(GetDlgItem(window,idQueuePause),L"Seguir cola");cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
+        if(id==idCancel){queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
         if(id==idLibrary){showLibrary();return 0;}
         if(id==idExit){SendMessageW(window,WM_CLOSE,0,0);return 0;}
         if(id==idFast || id==idQuality || id==idCPU || (id>=idGPU && id<idGPU+int(adapters.size()))){
             if(id==idFast || id==idQuality)fastMode=id==idFast;else gpuDevice=id==idCPU?-1:adapters[id-idGPU].first;
             saveLibrary();buildMenus();return 0;}
-        if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;SetWindowTextW(midiLabel,L"Pulsa un boton MIDI. SEND ALL no es una nota; usa SOLO 7 para Play.");return 0;}
-        if(id==idAbout){MessageBoxW(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Pausa. Bank Right: Reiniciar. SOLO canal 7: Play (por defecto). SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.4",MB_OK);return 0;}
+        if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;setText(midiLabel,L"Pulsa un boton MIDI. SEND ALL no es una nota; usa SOLO 7 para Play.");return 0;}
+        if(id==idLastError){showStemError();return 0;}
+        if(id==idAbout){MessageBoxW(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Pausa. Bank Right: Reiniciar. SOLO canal 7: Play (por defecto). SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.4.1",MB_OK);return 0;}
         if(id==idDataFolder){if(preparing || loading){error(L"Espera a que termine el trabajo antes de cambiar la carpeta.");return 0;}BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
             auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");MessageBoxW(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
         if(id==idPanic){mixer->panic();resetGestures();for(auto& row:instrumentOn)for(auto& on:row)on=false;for(int t=4;t<6;++t)syncInstrumentUI(t);return 0;}
         if(id>=idFX && id<idFX+6){int a=id-idFX;effectAction(a,!fxOn[a]);return 0;}
-        if(id>=idClear && id<idClear+6){if(loading)return 0;if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;SetWindowTextW(names[t],L"Sin pista");syncInstrumentUI(t);resetPickup();return 0;}
+        if(id>=idClear && id<idClear+6){if(loading)return 0;if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;setText(names[t],L"Sin pista");syncInstrumentUI(t);resetPickup();InvalidateRect(window,nullptr,FALSE);return 0;}
         if(id>=idLoad && id<idLoad+6){loadTrack(id-idLoad);return 0;}
         if(id>=idMute && id<idMute+6){int t=id-idMute;if(mixer->isInstrument(t)){instrumentAction(t-4,0,t==4?!instrumentOn[0][0]:true);return 0;}mixer->strip[t].mute=!mixer->strip[t].mute.load();syncButtons(t);return 0;}
         if(id>=idSolo && id<idSolo+6){int t=id-idSolo;if(mixer->isInstrument(t)){instrumentAction(t-4,1,!instrumentOn[t-4][1]);return 0;}mixer->strip[t].solo=!mixer->strip[t].solo.load();syncButtons(t);return 0;}
@@ -583,7 +613,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=windowProc;cls.lpszClassName=L"DubStemMixWinAlpha";
         cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=theme::bg();
         RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1280,int(work.right-work.left)-20),std::min(800,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,FALSE);
-        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.4",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.4.1",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
         if(!h){ma_context_uninit(&context);return 1;}
         ShowWindow(h,show);UpdateWindow(h);MSG msg{};

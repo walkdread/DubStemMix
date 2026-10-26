@@ -1,6 +1,12 @@
-DubStemMix para Windows x64 — alpha 0.4
+DubStemMix para Windows x64 — alpha 0.4.1
 
 NOVEDADES
+- Correccion de repintado: textos solo cuando cambian, forma de onda/medidor por
+  regiones y dibujo en memoria antes de mostrarlo para reducir el titileo.
+- Ayuda > Ultimo error de stems muestra el mensaje completo; Ctrl+C lo copia.
+  Se guarda en %LOCALAPPDATA%\DubStemMix\last-stem-error.txt. La cola se pausa
+  al fallar para no ocultar el error con el siguiente trabajo. Para reintentar,
+  selecciona la cancion, pulsa Reintentar y Seguir cola.
 - Interfaz reorganizada como la consola macOS: biblioteca integrada a la izquierda,
   forma de onda y transporte arriba, tarjetas de efectos y canales verticales.
 - Ventana redimensionable/maximizable. Perillas con arcos, botones activos coloreados
