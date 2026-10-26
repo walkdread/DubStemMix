@@ -68,6 +68,11 @@ if(DUB_BUILD_WINDOWS_APP)
   if(MSVC)
     target_compile_options(DubStemMix PRIVATE /utf-8)
   endif()
+  if(MINGW)
+    # Main.cpp uses wWinMain; MinGW needs -municode to pick the Unicode entry
+    # point. -static keeps the portable package independent of GCC runtime DLLs.
+    target_link_options(DubStemMix PRIVATE -municode -static)
+  endif()
   install(TARGETS DubStemMix RUNTIME DESTINATION .)
   install(FILES LICENSE NOTICE DESTINATION licenses)
   install(FILES "${miniaudio_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME MINIAUDIO-LICENSE.txt)

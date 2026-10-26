@@ -1,130 +1,320 @@
 <p align="center"><img src="Design/AppIcon-1024.png" width="128" alt="DubStemMix icon"></p>
 
-# DubStemMix
+# DubStemMix para Windows
 
-**Version excursion for the Akai MIDImix.** Take the stems of a tune, put them on six faders, keep two more to play the effects, and cut your own version the way it was done at King Tubby's: pull the vocal, throw the snare into the echo, drop everything but bass and drums, let the spring crash, blow the siren. No DAW, no session to prepare, nothing to map.
+**Consola de dub reggae para la Akai MIDImix.** Carga los stems de un tema, ponlos en seis faders, usa dos más para los efectos y construye tu propia versión al estilo de King Tubby: quita la voz, manda la caja al eco, deja solo bajo y batería, deja caer el spring, dispara la sirena. Sin DAW, sin sesión que preparar y sin mapear nada.
 
-Free and open source (MIT). macOS 15 or later, Apple Silicon. Native Swift and C, no Electron.
+Este repositorio es un **fork de trabajo** de [yoanbernabeu/DubStemMix](https://github.com/yoanbernabeu/DubStemMix). La rama `port/windows-alpha` es un port nativo a Windows x64 en C++/Win32, sin Electron y sin JUCE. El proyecto original de macOS sigue siendo la referencia funcional.
 
-**[Website](https://yoanbernabeu.github.io/DubStemMix/) · [Docs](https://yoanbernabeu.github.io/DubStemMix/docs/) · [Video](https://www.youtube.com/watch?v=bo1voaD_10Q) · [Releases](https://github.com/yoanbernabeu/DubStemMix/releases)**
+[![Windows alpha](https://github.com/walkdread/DubStemMix/actions/workflows/windows-alpha.yml/badge.svg?branch=port/windows-alpha)](https://github.com/walkdread/DubStemMix/actions/workflows/windows-alpha.yml)
 
-<p align="center"><img src="docs/screenshots/mix.png" width="100%" alt="DubStemMix, MIX page: four stem strips with sends to delay, reverb and phaser, the siren and the Syndrum, then the two effect strips"></p>
+> **Estado:** alpha 0.1. Todavía no es la versión completa de macOS. No la uses como única consola en una actuación hasta completar las pruebas de estabilidad con tu hardware.
 
-## Install
+## Qué funciona hoy
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/yoanbernabeu/DubStemMix/main/install.sh | sh
+| Área | Estado |
+|---|---|
+| Compilación nativa Windows x64 | ✅ GCC/MinGW y ClangCL/MSVC |
+| Seis pistas de stems | ✅ WAV, FLAC y MP3, convertidos a 48 kHz estéreo |
+| Tres buses de efectos | ✅ delay, plate reverb y phaser |
+| Retornos y master | ✅ faders 7 y 8, master y limiter |
+| Akai MIDImix | ✅ WinMM, pickup, LEDs de MUTE/SOLO |
+| Selección de salida | ✅ WASAPI compartido |
+| Transporte | ✅ reproducir, pausar y detener |
+| Carga de stems | ✅ un archivo por pista, alineados desde el inicio |
+| Persistencia de proyectos | ❌ pendiente |
+| Grabación / exportación | ❌ pendiente |
+| Separación automática de stems | ❌ pendiente |
+| Plugins VST3 / AU | ❌ pendiente |
+| ASIO | ❌ pendiente |
+| Paridad visual con macOS | 🟡 interfaz Win32 funcional, no idéntica |
+
+## Requisitos
+
+- **Windows 10 22H2** o **Windows 11**, x64.
+- 8 GB de RAM recomendados (la alpha limita el audio decodificado a 1 GB).
+- Una interfaz de audio USB (la Xenyx 302 USB es la referencia del proyecto).
+- **Akai MIDImix** para el control físico (opcional para probar con ratón/teclado).
+- Git.
+- Toolchain de compilación:
+  - **Opción recomendada:** [w64devkit](https://github.com/skeeto/w64devkit) (GCC, Make, CMake, Ninja y shell POSIX en un solo paquete).
+  - **Opción Visual Studio:** Visual Studio 2022 Build Tools con C++, Windows SDK y herramientas ClangCL.
+
+### Toolchain portable en este equipo
+
+`C:` tiene poco espacio libre, así que el toolchain se instala en `D:`:
+
+```text
+D:\tools\w64devkit\w64devkit          GCC 16.2, CMake 4.4.4, CTest, Ninja, Make, sh
+D:\tools\cmake-4.4.4-windows-x86_64    CMake/CTest alternativos
 ```
 
-Or with Homebrew: `brew install --cask yoanbernabeu/tap/dubstemmix`.
+Para usar `make` desde PowerShell en la sesión actual:
 
-The script installs (or updates) `DubStemMix.app` in `/Applications`, clears the Gatekeeper quarantine flag and opens the app. The app is signed ad hoc, not notarized. Details, manual install and first steps: [Install and plug in](https://yoanbernabeu.github.io/DubStemMix/docs/install/).
+```powershell
+$env:Path = "D:\tools\w64devkit\w64devkit\bin;$env:Path"
+make doctor
+```
 
-## Using it
+Si el paquete se extrae en otra ruta, cambia `TOOLCHAIN` al invocar `make`:
 
-The user documentation lives on the website:
+```powershell
+make TOOLCHAIN=C:/ruta/a/w64devkit build
+```
 
-1. [Install and plug in](https://yoanbernabeu.github.io/DubStemMix/docs/install/)
-2. [Your first dub, step by step](https://yoanbernabeu.github.io/DubStemMix/docs/first-dub/)
-3. [Stems and splitting](https://yoanbernabeu.github.io/DubStemMix/docs/stems/)
-4. [The board](https://yoanbernabeu.github.io/DubStemMix/docs/the-board/)
-5. [Gestures](https://yoanbernabeu.github.io/DubStemMix/docs/gestures/)
-6. [The effects](https://yoanbernabeu.github.io/DubStemMix/docs/effects/)
-7. [Projects and sets](https://yoanbernabeu.github.io/DubStemMix/docs/sets/)
-8. [Playing live](https://yoanbernabeu.github.io/DubStemMix/docs/live/)
-9. [Settings and help](https://yoanbernabeu.github.io/DubStemMix/docs/settings/)
+## Inicio rápido
 
-The rest of this README is for people who want to build, change or extend the app.
-
-## Build from source
-
-Needs Xcode 26 (Swift 6.2) on an Apple Silicon Mac.
-
-```sh
-git clone https://github.com/yoanbernabeu/DubStemMix.git
+```powershell
+git clone -b port/windows-alpha https://github.com/walkdread/DubStemMix.git
 cd DubStemMix
-swift run DubStemMix          # runs the app from the package
-swift test                    # unit tests, no model or audio device needed
-tools/make-app.sh 0.14.0 dist  # builds dist/DubStemMix.app and the zip
+
+# Comprobar que el compilador, CMake, Ninja y Git están disponibles
+make doctor
+
+# Configurar y compilar la app + los tests
+make build
+
+# Ejecutar los tests
+make test
+
+# Abrir la aplicación
+make run
 ```
 
-Command-line modes of the app binary (`swift run DubStemMix --check-audio`…):
+La primera configuración descarga **miniaudio 0.11.23** mediante CMake `FetchContent`; necesita conexión a Internet. Después queda en `build-windows/_deps/` y no se vuelve a descargar.
 
-| Flag | Does |
-|---|---|
-| `<folder, .dubstem or .dubset>` | launches the app and opens it |
-| `--check-documents` | saves and reopens projects and a setlist, no UI, no sound |
-| `--check-audio` | sound card, buffer, DSP load and dropouts on the real engine |
-| `--check-plugins [--all]` | loads each third-party Audio Unit effect (or all of them), silently, and reports |
-| `--check-plugin-crash` | kills an out-of-process plugin and checks the fallback |
-| `--check-update [version]` | asks GitHub, downloads and verifies the latest release, replaces nothing |
-| `--detect-tempo <folder> [text to exclude]` | estimates the BPM of a folder of stems |
-| `--download-models` | downloads the four htdemucs_ft networks (663 MB) |
-| `--split <file> [--out dir] [--provider cpu\|coreml-…] [--threads n] [--project]` | splits a song with the real models and reports the sum of the stems against the mix; `--project` also writes its ready project |
-| `--check-prepare <out dir> <files…>` | runs the preparation queue on the real model, then a second queue cancelled after 5 s |
-| `--snapshot <file.png> [--fx \| --master \| --inserts \| --settings \| --prepare \| --setlists]` | renders the interface with demo data; the screenshots come from here |
+### Si clonas en una carpeta con espacios
 
-## Code map
+La carpeta local de este proyecto es `D:\AKAI MIDIMIX\DubStemMix  Win` (con dos espacios). El `Makefile` usa rutas relativas y funciona, pero en PowerShell hay que citar la ruta:
 
-A Swift package, four targets:
-
-| Target | What it holds |
-|---|---|
-| `Sources/DubDSP` | the real-time DSP kernels of the built-in effects, in C: tape delay, plate and spring reverb, phaser, flanger, master chain, sub, auto-wah. No allocation and no lock on the audio thread. |
-| `Sources/DubStemMixCore` | everything without UI, and tested: the audio engine (AVAudioEngine), the bus routing, the MIDI controller and the mix logic (`MixController`), projects and setlists, plugins hosting, recording, tempo detection, the update check. |
-| `Sources/StemSplit` | stem separation: audio decoding, overlap-add, htdemucs_ft inference through ONNX Runtime, model download and verification. |
-| `Sources/DubStemMix` | the SwiftUI app: `AppModel` (split by topic in `AppModel+*.swift`), the console, the preparation screen, the setlist workshop, the settings, the self-checks. |
-
-Tests are in `Tests/DubStemMixCoreTests` and `Tests/StemSplitTests`. CI (`.github/workflows/ci.yml`) builds and runs them on every push and pull request.
-
-Other folders:
-
-- `tools/`: `make-app.sh` (packaging), `midi-monitor.swift` (prints what a MIDI controller sends), `make-icon.swift`.
-- `Packaging/Info.plist`, `Design/` (icon), `install.sh`.
-- `web/`: the website and the docs (Astro), see below.
-
-## Design notes
-
-- **The console is the truth.** Knobs are not motorized: after a page change, a knob acts only once it reaches the current value (soft takeover). The stem faders, the sends and the master fader are never restored from a project.
-- **Effects live on shared buses**, like the sends of a real board, so cutting a strip never kills a tail. Buses can feed one another, but are never wired together in the audio graph: each return is handed to the other buses through memory, one buffer later (`BusPortal`), which also makes loops impossible to create.
-- **Nothing cuts the sound while playing.** Any change that would stop or rewire AVAudioEngine (loading a plugin, placing a stem) is refused while playing, with a notice (`refusedWhilePlaying`).
-- **Plugins load out of process** when possible: a crashing plugin falls back to the built-in effect.
-- **The separation model is never shipped**: not in the repository, the releases or the app. It is downloaded on first use, after asking. Its license status is in [NOTICE](NOTICE).
-
-`PRD.md` is the product reference (in French): every decision, the console mapping, the milestones. `TODO.md` is what remains, `IDEAS.md` what might come.
-
-## Adding a controller
-
-The mix logic never sees the MIDImix. It receives abstract events (knob on strip 3, row 2; MUTE on strip 5; BANK RIGHT) and sends abstract LED states back. The MIDImix itself is a **profile**, plain data: which control change is which knob, which note is which button, which notes light the LEDs. See `ControllerProfile` in `Sources/DubStemMixCore/MidiMix.swift`.
-
-- **Same geometry** (8 strips with 3 knobs, a fader and MUTE / SOLO / REC ARM buttons, two bank buttons, a master fader): write a profile with its CC and note tables, the fragment of its MIDI name and whether it has LEDs, add it to `ControllerProfile.all`, check the numbers with `tools/midi-monitor.swift`, and open a pull request. The Novation Launch Control XL is the obvious candidate.
-- **Different shape** (one knob per strip, no per-strip buttons): it needs changes in the interface and the mix logic, not just a profile. Open an issue first so we can talk about it.
-
-## The website and the docs
-
-`web/` is an [Astro](https://astro.build) site, published to GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that touches `web/`.
-
-```sh
-cd web
-npm install
-npm run dev      # http://localhost:4321/DubStemMix/
+```powershell
+cd "D:\AKAI MIDIMIX\DubStemMix  Win"
+make build
 ```
 
-- The landing page is `web/src/pages/index.astro` and its sections in `web/src/components/`.
-- **Each docs page is a Markdown file** in `web/src/content/docs/`. The front matter sets its title, its SEO title and description, its label in the sidebar and its position (`order`). Add a file and it appears in the sidebar, the previous / next links and the sitemap.
-- Screenshots used by the site are in `web/src/assets/screenshots/`.
-- Facts the pages repeat (version, links) are in `web/src/site.ts`.
+## Makefile: referencia completa
 
-## Releasing
+`make help` muestra esta misma lista. Todos los targets se pueden combinar con variables:
 
-The version comes from the git tag. Publishing the GitHub release `vX.Y.Z` runs `.github/workflows/release.yml`: tests, `tools/make-app.sh X.Y.Z`, and `DubStemMix-X.Y.Z.zip` attached to the release. The in-app updater looks for that zip. The version is also written by hand in `web/src/site.ts` and in the build example above.
+```powershell
+make build JOBS=4
+make CONFIG=Debug test
+make TOOLCHAIN=C:/msys64/mingw64 build
+```
 
-## Contributing
+| Target | Qué hace |
+|---|---|
+| `help` | Muestra la ayuda (target por defecto). |
+| `doctor` | Comprueba CMake, CTest, Ninja, GCC/G++ y Git. |
+| `configure` | Configura CMake en `build-windows/`. |
+| `build` | Configura y compila `DubStemMix.exe` y los tests. |
+| `rebuild` | `clean` + `build`. |
+| `test` | Ejecuta la suite de CTest. |
+| `run` | Compila y abre `build-windows/DubStemMix.exe`. |
+| `package` | Instala en `dist/DubStemMix-Windows-alpha/` (exe, licencias y LEEME). |
+| `zip` | Genera `dist/DubStemMix-Windows-x64-alpha.zip`. |
+| `clean` | Borra `build-windows/`. |
+| `distclean` | Borra `build-windows/` y `dist/`. |
+| `info` | Muestra las variables de build. |
+| `web-install` | Instala dependencias del sitio Astro en `web/` (requiere Node.js). |
+| `web-dev` | Sirve la web en `http://localhost:4321/DubStemMix/`. |
+| `web-build` | Compila la web estática en `web/dist/`. |
 
-Bugs and ideas: [issues](https://github.com/yoanbernabeu/DubStemMix/issues). Pull requests welcome; for anything bigger than a fix or a controller profile, open an issue first.
+Variables principales:
 
-## License
+| Variable | Valor por defecto | Uso |
+|---|---|---|
+| `TOOLCHAIN` | `D:/tools/w64devkit/w64devkit` | Raíz del toolchain portable. |
+| `CMAKE` | `$(TOOLCHAIN)/bin/cmake.exe` | CMake a usar. |
+| `CTEST` | `$(TOOLCHAIN)/bin/ctest.exe` | CTest a usar. |
+| `NINJA` | `$(TOOLCHAIN)/bin/ninja.exe` | Generador Ninja. |
+| `CC_BIN` | `$(TOOLCHAIN)/bin/gcc.exe` | Compilador C. |
+| `CXX_BIN` | `$(TOOLCHAIN)/bin/g++.exe` | Compilador C++. |
+| `BUILD_DIR` | `build-windows` | Carpeta de build. |
+| `CONFIG` | `Release` | Configuración de CMake. |
+| `GENERATOR` | `Ninja` | Generador de CMake. |
+| `JOBS` | `2` | Paralelismo de compilación. |
+| `DIST_DIR` | `dist/DubStemMix-Windows-alpha` | Paquete portable. |
+| `ZIP_FILE` | `dist/DubStemMix-Windows-x64-alpha.zip` | ZIP final. |
 
-MIT, see [LICENSE](LICENSE). Third-party notices, including the separation model's, in [NOTICE](NOTICE).
+## Compilación manual con CMake
 
-Made for the sound system, in the spirit of King Tubby, Lee "Scratch" Perry, Scientist and everyone who ever versioned a riddim on a four-track with a spring and a tape echo.
+Si prefieres no usar `make`, el proyecto se compila igual con CMake. Para el toolchain portable:
+
+```powershell
+$env:Path = "D:\tools\w64devkit\w64devkit\bin;$env:Path"
+$env:CC  = "D:\tools\w64devkit\w64devkit\bin\gcc.exe"
+$env:CXX = "D:\tools\w64devkit\w64devkit\bin\g++.exe"
+
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DDUB_BUILD_WINDOWS_APP=ON
+cmake --build build-windows --parallel 2
+ctest --test-dir build-windows -C Release --output-on-failure
+cmake --install build-windows --prefix dist/DubStemMix-Windows-alpha
+```
+
+Para Visual Studio 2022 con ClangCL (el camino que usa GitHub Actions):
+
+```powershell
+cmake -S . -B build-windows -G "Visual Studio 17 2022" -A x64 -T ClangCL -DDUB_BUILD_WINDOWS_APP=ON
+cmake --build build-windows --config Release --parallel 2
+ctest --test-dir build-windows -C Release --output-on-failure
+```
+
+En MinGW, `CMakeLists.txt` añade automáticamente `-municode` (para `wWinMain`) y `-static` (para que el `.exe` no dependa de DLLs de GCC). El ejecutable resultante solo depende de DLLs del sistema: `KERNEL32`, `USER32`, `GDI32`, `COMCTL32`, `COMDLG32`, `WINMM` y `msvcrt`.
+
+## Primer uso
+
+1. Conecta la **Akai MIDImix** y la interfaz de audio.
+2. Abre `build-windows/DubStemMix.exe` (o `make run`).
+3. Elige la salida de audio en la lista superior. El nombre lo da Windows; puede no coincidir literalmente con el nombre comercial de la interfaz.
+4. Baja el volumen físico de escucha. Pulsa **Reproducir** y súbelo poco a poco.
+5. Carga un archivo por pista: voz, batería, bajo y otros. Los stems deben ser de la misma canción y estar alineados desde el mismo instante inicial.
+6. Ajusta faders, envíos y retornos. Si un control MIDI no responde, muévelo hasta alcanzar el valor que aparece en pantalla (pickup).
+
+### Controles de la MIDImix
+
+| Control | Función |
+|---|---|
+| Faders 1–6 | Volumen de las seis pistas. |
+| Perillas, fila superior | Envío a delay. |
+| Perillas, fila media | Envío a plate reverb. |
+| Perillas, fila inferior | Envío a phaser. |
+| Fader 7 | Retorno de delay. |
+| Fader 8 | Retorno de reverb. |
+| Master | Volumen general. |
+| MUTE | Silencia la pista. |
+| SOLO + MUTE | Mantén SOLO y pulsa MUTE para hacer solo. |
+| Pickup | El control físico no salta: actúa al alcanzar el valor en pantalla. |
+
+El retorno de phaser se ajusta en pantalla. Pausa conserva la posición y deja sonar las colas; Detener reinicia la posición y limpia los efectos. Cargar pistas reinicia la posición. Reconectar MIDI vuelve a abrir el controlador si lo conectaste después. Actualizar audio vuelve a enumerar las salidas y debe usarse con la reproducción detenida.
+
+## Arquitectura
+
+```text
+Sources/
+  DubDSP/                 Núcleo DSP en C11, compartido con macOS
+  WindowsApp/
+    Main.cpp              UI Win32, WASAPI, MIDI WinMM, diálogos
+    Mixer.h               grafo de mezcla y parámetros atómicos
+    Miniaudio.c           implementación de miniaudio
+Tests/
+  PortableDSP/            portabilidad del DSP en C
+  WindowsCore/            pruebas del mixer sin hardware
+CMakeLists.txt            build portable + app Windows opcional
+Makefile                  atajos de build/test/run/package
+docs/
+  WINDOWS_PORT_ES.md      estrategia de migración y riesgos
+  WINDOWS_PRIMEROS_PASOS.txt  guía de la alpha
+web/                      sitio Astro del proyecto original
+```
+
+| Componente | Responsabilidad |
+|---|---|
+| `DubDSP` | Delay de cinta, plate/spring reverb, phaser, flanger, limiter, sub, auto-wah, sirena, Syndrum. Sin allocation ni locks en el hilo de audio. |
+| `Mixer` | Seis strips, tres buses, retornos, master, limiter, suavizado de ganancias y posición de reproducción. |
+| `Main.cpp` | Ventana, controles, selección de dispositivo, decodificación, MIDI, pickup y LEDs. |
+| `Tests/PortableDSP` | Comprueba los efectos a 44.1/48/96 kHz y distintos tamaños de bloque. |
+| `Tests/WindowsCore` | Comprueba el mixer sin abrir dispositivo de audio. |
+
+### Decisiones de audio
+
+- Un solo hilo de render; el callback no abre archivos, no decodifica, no reserva memoria y no espera locks.
+- Formato interno fijo: **48 kHz, estéreo, float32**, quantum de 256 muestras.
+- Los parámetros de UI/MIDI se publican con `std::atomic` y se suavizan en el render.
+- Los stems se cargan completos en memoria; límite de 1 GB de audio decodificado.
+- WASAPI en modo compartido; no hay ASIO ni promesa de latencia mínima en esta etapa.
+- Los efectos viven en buses compartidos: cortar una pista no corta las colas.
+- La MIDImix se detecta por nombre y se controla con WinMM. No se restauran faders físicos desde un proyecto.
+
+## Alcance actual y limitaciones
+
+Esta alpha **no** implementa todavía:
+
+- Guardar/abrir proyectos `.dubstem` ni setlists `.dubset`.
+- Grabación de sesiones, exportación WAV/MP3 ni tracklist.
+- Separación automática de stems con htdemucs/ONNX.
+- Plugins VST3/AU ni aislamiento de plugins.
+- ASIO, baja latencia garantizada o soporte de 192 kHz.
+- Bancos, REC ARM, instrumentos, envíos entre buses ni la UI completa de macOS.
+- Actualizador automático, instalador firmado o desinstalador.
+- Pruebas con hardware físico validadas por el autor de este fork.
+
+Los stems deben estar precargados y alineados. Si los stems tienen silencios iniciales distintos, la mezcla sonará desfasada. Para la primera prueba usa WAV sin silencios iniciales y con la misma frecuencia de muestreo.
+
+## Roadmap
+
+| Hito | Contenido | Estado |
+|---|---|---|
+| M1 | Base DSP portable, CMake, tests y app Windows mínima | ✅ |
+| M2 | Paridad de audio y controles: parámetros de efectos, mute/solo, master, buses, UI más cercana a macOS | 🟡 en curso |
+| M3 | Proyectos, setlists, carga/guardado, grabación WAV y exportación | ⏳ |
+| M4 | Separación de stems con ONNX Runtime CPU y cola de preparación | ⏳ |
+| M5 | VST3, ASIO, instalador, firma y actualizaciones | ⏳ |
+
+## Solución de problemas
+
+**`make` no se reconoce como comando.**
+Añade el toolchain al `PATH` de la sesión:
+
+```powershell
+$env:Path = "D:\tools\w64devkit\w64devkit\bin;$env:Path"
+```
+
+O invoca `make.exe` con su ruta completa.
+
+**`undefined reference to WinMain`.**
+`Main.cpp` usa `wWinMain`. Con MinGW hay que enlazar con `-municode`; `CMakeLists.txt` ya lo añade. Si usas otro build, añade `-municode` a las opciones de enlace.
+
+**`C11 atomics required`.**
+El proyecto necesita `_Atomic` de C11. Usa GCC/Clang reciente o Visual Studio 2022 con `-T ClangCL`; no uses el compilador C de MSVC clásico para `DubDSP`.
+
+**No aparece la interfaz de audio.**
+Pulsa **Detener**, luego **Actualizar audio** y selecciona la salida. WASAPI compartido no funciona bien si otra aplicación tiene el dispositivo en exclusiva. Cierra DAWs y reproductores que puedan estar bloqueándolo.
+
+**No se detecta la MIDImix.**
+Conecta el controlador, cierra otras aplicaciones MIDI y pulsa **Reconectar MIDI**. La alpha busca un dispositivo cuyo nombre contenga `MIDImix`.
+
+**La primera configuración tarda.**
+CMake descarga miniaudio con `FetchContent`. Es solo la primera vez; después queda en `build-windows/_deps/`.
+
+**Error por espacios en la ruta.**
+El `Makefile` usa rutas relativas, pero si ejecutas CMake a mano, entrecomilla todas las rutas que contengan espacios. La carpeta local actual tiene dos espacios en el nombre.
+
+**Poco espacio en `C:`.**
+Instala el toolchain en `D:` y pasa `TOOLCHAIN=...` a `make`. Los builds van a `build-windows/` dentro del proyecto.
+
+**El antivirus bloquea el `.exe`.**
+La alpha no está firmada digitalmente. Añade una exclusión temporal solo si confías en el binario que acabas de compilar.
+
+## Documentación
+
+- [Estrategia de migración a Windows](docs/WINDOWS_PORT_ES.md): decisiones, inventario, riesgos y criterios de aceptación.
+- [Primeros pasos de la alpha](docs/WINDOWS_PRIMEROS_PASOS.txt): alcance, controles y límites.
+- [Documentación del proyecto original](https://yoanbernabeu.github.io/DubStemMix/docs/): guía de usuario, efectos, stems, proyectos y directo.
+- [Web del proyecto original](https://yoanbernabeu.github.io/DubStemMix/).
+
+## Versión macOS original
+
+El proyecto de **Yoan Bernabeu** sigue siendo la referencia funcional y de sonido. Es una app nativa Swift/SwiftUI + C para macOS 15+ (Apple Silicon), con separación de stems, grabación, proyectos, plugins y una interfaz mucho más completa.
+
+- Repositorio original: [yoanbernabeu/DubStemMix](https://github.com/yoanbernabeu/DubStemMix)
+- Build original: Xcode 26 / Swift 6.2, `swift run DubStemMix`, `swift test`.
+- Este fork no está afiliado al autor original.
+
+## Licencia y créditos
+
+El proyecto es **MIT**. Consulta [LICENSE](LICENSE) y [NOTICE](NOTICE).
+
+- DSP original: Yoan Bernabeu y colaboradores.
+- Port Windows: walkdread y colaboradores.
+- [miniaudio](https://github.com/mackron/miniaudio) 0.11.23, fijado en `f40cf03f80cdb7e741d43e53b7e706e8c1394bcf`; aviso en `licenses/MINIAUDIO-LICENSE.txt`.
+- Fuentes, iconos y capturas: ver `Design/` y `web/`.
+
+## Contribuir
+
+- Trabaja sobre la rama `port/windows-alpha`.
+- Mantén `Sources/DubDSP` compatible con la versión macOS: es código C compartido y su ABI no debe romperse sin una migración coordinada.
+- Añade o actualiza pruebas en `Tests/PortableDSP` y `Tests/WindowsCore`.
+- Ejecuta `make test` antes de abrir un pull request.
+- Para cambios grandes (proyectos, grabación, ONNX, VST3, ASIO), abre primero un issue y documenta el alcance.
+- No introduzcas Electron ni JUCE sin una decisión de arquitectura y licencia discutida en el repositorio.
