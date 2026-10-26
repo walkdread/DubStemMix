@@ -10,7 +10,8 @@ inline LRESULT CALLBACK noticeProc(HWND h,UINT m,WPARAM w,LPARAM l){
     if(!n)return DefWindowProcW(h,m,w,l);
     switch(m){
     case WM_CREATE:{RECT r;GetClientRect(h,&r);n->font=CreateFontW(-15,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Archivo");
-        auto edit=CreateWindowExW(0,L"EDIT",n->text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,22,60,r.right-44,r.bottom-128,h,reinterpret_cast<HMENU>(100),nullptr,nullptr);
+        std::wstring display;for(const wchar_t* p=n->text;*p;++p){if(*p==L'\n' && (p==n->text || p[-1]!=L'\r'))display+=L'\r';display+=*p;}
+        auto edit=CreateWindowExW(0,L"EDIT",display.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,22,60,r.right-44,r.bottom-128,h,reinterpret_cast<HMENU>(100),nullptr,nullptr);
         SendMessageW(edit,WM_SETFONT,reinterpret_cast<WPARAM>(n->font),TRUE);
         bool question=(n->flags&MB_YESNO)==MB_YESNO;
         auto add=[&](int id,const wchar_t* label,int x){auto b=CreateWindowW(L"BUTTON",label,WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,x,r.bottom-52,120,32,h,reinterpret_cast<HMENU>(INT_PTR(id)),nullptr,nullptr);SendMessageW(b,WM_SETFONT,reinterpret_cast<WPARAM>(n->font),TRUE);return b;};
