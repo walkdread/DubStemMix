@@ -88,7 +88,11 @@ void writeWave(const fs::path& file,const std::vector<float>& data) {
     if(!out)throw std::runtime_error("No hay espacio para los stems");
 }
 }
-fs::path dataRoot(){PWSTR value=nullptr;if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&value)))throw std::runtime_error("No se encontro la carpeta de datos");fs::path root(value);CoTaskMemFree(value);return root/L"DubStemMix";}
+fs::path configRoot(){PWSTR value=nullptr;if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&value)))throw std::runtime_error("No se encontro la carpeta de datos");fs::path root(value);CoTaskMemFree(value);return root/L"DubStemMix";}
+fs::path dataRoot(){auto root=configRoot();wchar_t custom[32768]{};GetPrivateProfileStringW(L"Storage",L"Folder",L"",custom,32768,(root/L"settings.ini").c_str());return custom[0]?fs::path(custom):root;}
+void setDataRoot(const fs::path& folder){fs::create_directories(folder);auto root=configRoot();fs::create_directories(root);
+    if(!WritePrivateProfileStringW(L"Storage",L"Folder",folder.c_str(),(root/L"settings.ini").c_str()))throw std::runtime_error("No se pudo guardar la carpeta de datos");}
+
 std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<bool>& cancel,const Progress& progress) {
     cancelled(cancel);progress(L"Leyendo cancion...");auto fingerprint=sha256(file,cancel);
     auto folder=dataRoot()/L"Stems"/(fingerprint+"-8616370e");

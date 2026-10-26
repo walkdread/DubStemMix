@@ -134,3 +134,18 @@ El MVP completo de la estrategia sigue pendiente: esta alpha no implementa proye
 grabación, separación ONNX ni paridad de controles/efectos con macOS.
 CMake se instaló posteriormente en el entorno y ambas pruebas pasan mediante CTest.
 La nueva UI requiere compilación Windows; no se ha probado aquí con hardware físico.
+
+
+## Alpha 0.2: consola, instrumentos y preparación
+La UI Win32 se rediseña con tema oscuro, perillas, faders y visualización de onda.
+Siren y Syndrum usan los kernels C originales y los canales 5/6 vacíos; un stem
+en esos canales desactiva su instrumento. Se preservan envíos y suavizado.
+Se incorporan variantes spring/flanger y controles de delay/reverb/phaser.
+Separación: ONNX Runtime CPU 1.19.2 en worker, modelos y hashes del catálogo original,
+ventana 343980/overlap 25%, salida por especialidad del modelo, resample a 48 kHz.
+La descarga requiere aceptación en UI; no se transmite audio. Los stems preparados
+se verifican por hash y reutilizan. Preparar no modifica la mezcla hasta éxito.
+Cancelación entre bloques, no durante Ort::Session::Run. Canciones hasta 10 minutos.
+Carpeta de datos configurable para no agotar el SSD del equipo de referencia.
+La alpha 0.2 sigue sin proyectos/setlists, grabación, plugins, bancos, envíos entre
+buses ni toda la cadena master e inserts de macOS. No es paridad completa.

@@ -29,6 +29,7 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
     case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);FillRect(dc,&r,surface());
         int width=r.right,height=r.bottom;const int id=GetDlgCtrlID(h);COLORREF accent=gold;
         if(id>=500 && id<518){int bus=(id-500)%3;accent=bus==1?green:(bus==2?red:gold);}
+        if(id==514 || id==517)accent=gold;
         if(d->fader){RECT groove{width/2-2,9,width/2+2,height-9};FillRect(dc,&groove,bg());
             int y=height-10-(height-20)*d->value/127;RECT thumb{width/2-14,y-6,width/2+14,y+6};HBRUSH b=CreateSolidBrush(text);FillRect(dc,&thumb,b);DeleteObject(b);
         }else{int cx=width/2,cy=(height-14)/2,rad=std::min(width,height-14)/2-4;

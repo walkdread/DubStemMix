@@ -5,6 +5,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <mmsystem.h>
+#include <shlobj.h>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -19,11 +20,14 @@
 namespace {
 constexpr UINT midiMessage = WM_APP + 1;
 constexpr int idPlay=10,idPause=11,idStop=12,idAudio=13,idMidi=14,idDevices=15;
-constexpr int idSong=20,idCancel=21,idPanic=22,idClear=30,idInstrument=40,idFX=60,idEffectDial=700;
+constexpr int idSong=20,idCancel=21,idPanic=22,idDataFolder=23,idClear=30,idInstrument=40,idFX=60,idEffectDial=700;
 constexpr int idLoad=100,idLevel=200,idMute=300,idSolo=400,idSend=500,idReturn=600,idMaster=610;
 HWND window{},status{},deviceList{},midiLabel{};
 HWND levels[6]{},names[6]{},mutes[6]{},solos[6]{},sends[6][3]{},returns[3]{},masterSlider{};
 HFONT font{};
+float layoutX=1,layoutY=1;
+int sx(int v){return static_cast<int>(std::lround(v*layoutX));}
+int sy(int v){return static_cast<int>(std::lround(v*layoutY));}
 HWND songLabel{},sendLabels[6][3]{},clearButtons[6]{},fxButtons[6]{},fxDials[6]{};
 std::thread preparation;
 std::atomic<bool> preparing{false},cancelPreparation{false},preparationDone{false};
@@ -58,12 +62,12 @@ std::wstring wide(const char* text) {
 }
 HWND control(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0) {
     if(wcscmp(cls,L"BUTTON")==0) style=(style&~0xFu)|BS_OWNERDRAW;
-    auto c=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,window,
+    auto c=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,sx(x),sy(y),sx(w),sy(h),window,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
     SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE); return c;
 }
 HWND dial(int x,int y,int w,int h,int id,float value,bool fader=false) {
-    auto c=CreateWindowExW(0,L"DubDial",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP,x,y,w,h,window,
+    auto c=CreateWindowExW(0,L"DubDial",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP,sx(x),sy(y),sx(w),sy(h),window,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),fader?reinterpret_cast<void*>(1):nullptr);
     SendMessageW(c,TBM_SETPOS,TRUE,static_cast<LPARAM>(std::lround(value*127)));return c;
 }
@@ -301,7 +305,7 @@ void pollPreparation() {
 void buildUI() {
     font=CreateFontW(-12,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     control(L"STATIC",L"DUBSTEMMIX",0,12,20,130,26);
-    control(L"STATIC",L"WINDOWS / ALPHA 0.2",0,12,48,128,20);
+    control(L"STATIC",L"WIN / ALPHA 0.2",0,12,48,128,20);
     control(L"BUTTON",L"ABRIR CANCION",WS_TABSTOP,10,88,128,34,idSong);
     control(L"BUTTON",L"Cancelar proceso",WS_TABSTOP,10,130,128,28,idCancel);
     control(L"STATIC",L"SALIDA DE AUDIO",0,12,180,120,20);
@@ -309,6 +313,7 @@ void buildUI() {
     control(L"BUTTON",L"Actualizar audio",WS_TABSTOP,10,240,128,28,idAudio);
     control(L"BUTTON",L"Reconectar MIDI",WS_TABSTOP,10,286,128,28,idMidi);
     midiLabel=control(L"STATIC",L"",0,12,324,122,70);
+    control(L"BUTTON",L"Carpeta de datos",WS_TABSTOP,10,382,128,28,idDataFolder);
     control(L"STATIC",L"STEMS + INSTRUMENTOS\n\n1-4: stems\n5: Siren\n6: Syndrum\n7-8: efectos\n\nArrastra las perillas arriba / abajo.\n\nCargar permite abrir stems existentes.",0,12,420,122,245);
     control(L"BUTTON",L"PLAY",WS_TABSTOP,156,15,70,34,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,234,15,70,34,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,312,15,90,34,idStop);
     songLabel=control(L"STATIC",L"NUEVA VERSION",SS_ENDELLIPSIS,420,22,380,24);
@@ -329,13 +334,14 @@ void buildUI() {
     }
     control(L"STATIC",L"7  DELAY",SS_CENTER,754,218,90,20);control(L"STATIC",L"8  SPACE",SS_CENTER,854,218,90,20);
     const wchar_t* fxNames[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP",L"PLATE",L"PHASER"};
-    const int fxX[]={756,756,856,856,756,856},fxY[]={493,524,493,524,285,285};
+    const int fxX[]={756,756,856,856,756,856},fxY[]={385,420,385,420,285,285};
     for(int i=0;i<6;++i)fxButtons[i]=control(L"BUTTON",fxNames[i],WS_TABSTOP,fxX[i],fxY[i],84,28,idFX+i);
     control(L"STATIC",L"RETORNOS",SS_CENTER,758,340,182,20);
-    returns[0]=dial(777,410,42,235,idReturn,0.5f,true);returns[1]=dial(877,410,42,235,idReturn+1,0.5f,true);
+    returns[0]=dial(777,470,42,175,idReturn,0.5f,true);returns[1]=dial(877,470,42,175,idReturn+1,0.5f,true);
     control(L"STATIC",L"MASTER",SS_CENTER,964,218,96,20);masterSlider=dial(990,270,42,225,idMaster,0.5f,true);
     control(L"STATIC",L"PHASER RETURN",SS_CENTER,959,530,106,20);returns[2]=dial(982,559,58,62,idReturn+2,0.5f);
     status=control(L"STATIC",L"",0,12,706,1050,28);
+    SendMessageW(deviceList,CB_SETDROPPEDWIDTH,450,0);
     enumerateAudio();connectMidi();
     for(int e=0;e<6;++e)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(fxDials[e]));
     for(int t=4;t<6;++t)for(int b=0;b<2;++b)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(sends[t][b]));
@@ -343,18 +349,21 @@ void buildUI() {
 }
 LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     switch(message){
-    case WM_CREATE:window=h;buildUI();return 0;
+    case WM_CREATE:{window=h;RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1080;layoutY=float(r.bottom)/740;buildUI();return 0;}
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);FillRect(dc,&r,theme::bg());
-        for(int i=0;i<9;++i){RECT strip{150+i*100,210,246+i*100,692};if(i==8)strip.right=1068;FillRect(dc,&strip,theme::surface());}
-        RECT wave{150,62,1068,107};FillRect(dc,&wave,theme::surface());
+        for(int i=0;i<9;++i){RECT strip{150+i*100,210,246+i*100,692};if(i==8)strip.right=1068;strip={sx(strip.left),sy(strip.top),sx(strip.right),sy(strip.bottom)};FillRect(dc,&strip,theme::surface());}
+        RECT wave{sx(150),sy(62),sx(1068),sy(107)};FillRect(dc,&wave,theme::surface());
         const std::vector<float>* samples=nullptr;for(auto& strip:mixer->strip)if(!strip.samples.empty()){samples=&strip.samples;break;}
         if(samples){auto pen=CreatePen(PS_SOLID,1,theme::muted);auto old=SelectObject(dc,pen);size_t frames=samples->size()/2;
-            for(int x=0;x<300;++x){size_t i=static_cast<size_t>(x)*frames/300;float peak=0;for(size_t j=0;j<128 && i+j<frames;++j)peak=std::max(peak,std::abs((*samples)[(i+j)*2]));int a=static_cast<int>(std::min(peak,1.0f)*20);MoveToEx(dc,155+x*3,84-a,nullptr);LineTo(dc,155+x*3,84+a+1);}SelectObject(dc,old);DeleteObject(pen);
-            if(frames){int x=155+static_cast<int>(std::min(1.0,double(mixer->position.load())/frames)*900);pen=CreatePen(PS_SOLID,2,theme::gold);old=SelectObject(dc,pen);MoveToEx(dc,x,64,nullptr);LineTo(dc,x,105);SelectObject(dc,old);DeleteObject(pen);}}
+            for(int x=0;x<300;++x){size_t i=static_cast<size_t>(x)*frames/300;float peak=0;for(size_t j=0;j<128 && i+j<frames;++j)peak=std::max(peak,std::abs((*samples)[(i+j)*2]));int a=static_cast<int>(std::min(peak,1.0f)*20);MoveToEx(dc,sx(155+x*3),sy(84-a),nullptr);LineTo(dc,sx(155+x*3),sy(84+a+1));}SelectObject(dc,old);DeleteObject(pen);
+            if(frames){int x=155+static_cast<int>(std::min(1.0,double(mixer->position.load())/frames)*900);pen=CreatePen(PS_SOLID,2,theme::gold);old=SelectObject(dc,pen);MoveToEx(dc,sx(x),sy(64),nullptr);LineTo(dc,sx(x),sy(105));SelectObject(dc,old);DeleteObject(pen);}}
         EndPaint(h,&ps);return 0;}
     case WM_DRAWITEM:theme::button(reinterpret_cast<DRAWITEMSTRUCT*>(lp));return TRUE;
-    case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);SetTextColor(dc,theme::text);SetBkMode(dc,TRANSPARENT);SetBkColor(dc,theme::background);return reinterpret_cast<LRESULT>(theme::bg());}
+    case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);SetTextColor(dc,theme::text);SetBkMode(dc,TRANSPARENT);SetBkColor(dc,theme::background);
+        RECT child;GetWindowRect(reinterpret_cast<HWND>(lp),&child);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&child),2);
+        if(child.left>=sx(150) && child.top>=sy(210) && child.top<sy(692))return reinterpret_cast<LRESULT>(theme::surface());
+        return reinterpret_cast<LRESULT>(theme::bg());}
     case midiMessage:handleMidi(static_cast<DWORD>(wp));return 0;
     case WM_TIMER:updateStatus();return 0;
     case WM_HSCROLL:{
@@ -374,6 +383,8 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_COMMAND:{int id=LOWORD(wp);
         if(id==idCancel){cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
         if(preparing.load())return 0;
+        if(id==idDataFolder){BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
+            auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");MessageBoxW(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
         if(id==idPanic){mixer->panic();resetGestures();for(auto& row:instrumentOn)for(auto& on:row)on=false;for(int t=4;t<6;++t)syncInstrumentUI(t);return 0;}
         if(id>=idFX && id<idFX+6){int a=id-idFX;effectAction(a,!fxOn[a]);return 0;}
@@ -403,6 +414,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
     if(command && wcsstr(command,L"--check-separation"))return dubwin::separationSelfTest();
     try {
+        CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
         theme::registerDial(instance);
         mixer=std::make_unique<dubwin::Mixer>();
         const ma_backend backend=ma_backend_wasapi;

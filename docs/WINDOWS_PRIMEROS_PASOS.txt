@@ -1,54 +1,80 @@
-DubStemMix para Windows x64 — alpha 0.1
+DubStemMix para Windows x64 — alpha 0.2
 
-Esta es una primera version de prueba. No es la version completa de macOS.
+NOVEDADES
+- Consola oscura inspirada en macOS, perillas, faders verticales y vista de onda.
+- Abrir una cancion completa y separarla localmente en voz, bateria, bajo y otros.
+- Siren y Syndrum originales en canales 5 y 6 cuando no tienen un stem cargado.
+- Plate/spring, phaser/flanger, controles de efectos, HOLD, x2, CRASH y TAPE STOP.
+- PANIC silencia instrumentos y vacia las colas con una transicion.
 
-COMO ABRIR
-1. Descarga el artifact DubStemMix-Windows-x64-alpha de la ejecucion correcta
-   en GitHub Actions. Debes estar conectado a tu cuenta de GitHub.
-2. En el ZIP descargado: clic derecho > Extraer todo.
-3. Conecta la Akai MIDImix y la interfaz Xenyx 302 USB.
-4. Abre DubStemMix.exe dentro de la carpeta extraida.
-   Esta compilacion de prueba no tiene firma digital. No requiere administrador.
-5. Elige la salida de tu interfaz en la lista superior. El nombre lo proporciona
-   Windows; puede no coincidir literalmente con el nombre comercial Xenyx.
-6. Carga un archivo por pista: voz, bateria, bajo y otros. Deben ser stems
-   de la misma cancion, alineados desde el mismo instante inicial.
-7. Baja el volumen fisico de escucha, pulsa Reproducir y subelo gradualmente.
+ABRIR
+1. Extrae TODO el ZIP en una carpeta nueva. Conserva la alpha anterior.
+2. Abre DubStemMix.exe desde esa carpeta; deja onnxruntime.dll y las demas DLL
+   a su lado. No copies solamente el ejecutable.
+3. Selecciona la salida USB y conecta MIDImix. Baja el volumen de escucha.
 
-CONTROLES
-- Faders 1 a 6: volumen de las seis pistas.
-- Perillas de cada pista: fila superior delay, media reverb, inferior phaser.
-- Fader 7: retorno delay. Fader 8: retorno reverb.
-- Master: volumen general. El retorno phaser se ajusta en pantalla.
-- MUTE: silencia la pista. Mantener SOLO y pulsar MUTE: solo.
-- Pickup: si un control no responde, muevelo hasta alcanzar el valor que aparece
-  en pantalla; evita saltos al conectar el controlador.
-- Pausa conserva posicion y deja sonar las colas. Reproducir continua.
-- Detener reinicia posicion y limpia efectos. Cargar pistas reinicia posicion.
-- Reconectar MIDI vuelve a abrir el controlador si lo conectaste despues.
-- Actualizar audio vuelve a enumerar las salidas; se usa con reproduccion detenida.
+PREPARAR UNA CANCION
+1. Opcional: pulsa Carpeta de datos y elige una carpeta en D: si C: tiene poco espacio.
+   Se crea una subcarpeta DubStemMix. El cambio no mueve archivos anteriores.
+2. Pulsa ABRIR CANCION y elige un MP3, FLAC o WAV de hasta 10 minutos.
+3. Lee y acepta el aviso. La primera vez descarga hasta 663 MB de modelos.
+   Requiere Internet para descargar; la cancion nunca se envia a un servidor.
+   Tras descargar los modelos, la separacion funciona sin Internet.
+4. Espera: se muestran descarga, verificacion, instrumento y bloque de audio.
+   El procesamiento usa CPU; esta version no utiliza la tarjeta NVIDIA.
+5. Al terminar se cargan las cuatro pistas alineadas. Pulsa PLAY.
+   Canales 5 y 6 quedan libres para instrumentos. Preparar reemplaza las pistas
+   solo cuando termina correctamente; cancelar/fallar conserva las anteriores.
+6. Preparar de nuevo el mismo archivo reutiliza los stems guardados y verificados.
 
-ALCANCE Y LIMITES
-- Seis pistas WAV, FLAC o MP3 precargadas; se convierten a 48 kHz stereo.
-  Para la primera prueba usar WAV sin silencios iniciales distintos entre stems.
-- Limite total de audio decodificado: 1 GB. La carga puede tardar y se hace detenida.
-- Efectos del proyecto original: delay, plate reverb, phaser y limiter.
-  Esta alpha ofrece envios y retornos; sus parametros internos usan los valores
-  iniciales del DSP. No reproduce todavia todos los controles de la version Mac.
-- WASAPI compartido. No ASIO ni promesa de latencia minima en esta etapa.
-- No separa canciones automaticamente, no guarda proyectos, no graba, no carga
-  plugins, no tiene bancos ni REC ARM, ni instrumentos ni envios entre buses.
-- Si desconectas la interfaz: Detener, Actualizar audio y seleccionar la salida.
-- No validada aun en Windows 10 fisico con Xenyx/MIDImix. No usar como unica
-  consola en una actuacion hasta completar las pruebas de estabilidad.
+Cancelar proceso solicita detenerse al finalizar el bloque de inferencia actual;
+no siempre es instantaneo. No se permite reproducir ni cambiar pistas mientras
+se prepara una cancion. Los modelos se verifican por tamano y SHA256.
+Por defecto, datos en %LOCALAPPDATA%\DubStemMix. Las canciones ya preparadas se
+conservan como WAV dentro de Stems. Puede hacer falta varios GB de espacio libre.
 
-SI FALLA
-Envia una captura del mensaje o describe: que pulsaste, si la pista se cargo,
-si avanza el contador, la salida seleccionada y si responde el MIDImix.
-No compartas contrasenas ni claves de GitHub.
+INSTRUMENTOS
+Si los canales 5/6 contienen un archivo, pulsa Detener y Vaciar para recuperar
+Siren/Syndrum. Funcionan aunque no haya una cancion reproduciendose.
 
-DEPENDENCIAS
-Nucleo DubDSP del proyecto original (MIT). Interfaz Win32 y motor C++ nuevo.
-miniaudio 0.11.23, fijado al commit f40cf03f80cdb7e741d43e53b7e706e8c1394bcf.
-Los avisos se incluyen en la carpeta licenses. Esta alpha no utiliza JUCE,
-ONNX, LAME ni modelos de separacion.
+Akai MIDImix, canal 5 (Siren):
+- Fader: volumen.
+- Perillas superior / media / inferior: pitch / rate / envio al delay.
+- Mantener MUTE: sonar. Soltar: apagar.
+- Mantener REC ARM: subida de tono (RISE).
+
+Canal 6 (Syndrum):
+- Fader: volumen.
+- Perillas: pitch / decay / envio al delay.
+- MUTE: un golpe por pulsacion.
+- Mantener REC ARM: redoble (ROLL). Intervalo fijo inicial de 1/8 segundo.
+
+En pantalla, HOLD y RISE se activan/desactivan al hacer clic. HIT da un golpe;
+ROLL se activa/desactiva. PANIC libera todos los gestos. La desconexion manual
+mediante Reconectar MIDI tambien libera instrumentos.
+
+EFECTOS
+- Canales 1–4: perillas superior/media/inferior envian a delay/reverb/phaser.
+- Si cargas stems en 5/6 sus perillas vuelven a funcionar como envios.
+- Fader 7: retorno delay. Fader 8: retorno reverb. Phaser return: en pantalla.
+- Perillas canal 7: tiempo delay / feedback / decay reverb.
+- Perillas canal 8: damping reverb / rate phaser / depth phaser.
+- MUTE 7: HOLD delay mientras se mantiene. REC ARM 7: x2 mientras se mantiene.
+- MUTE 8: spring CRASH. REC ARM 8: TAPE STOP mientras se mantiene.
+- PLATE/SPRING y PHASER/FLANGER cambian la variante del bus.
+- Las perillas se arrastran arriba/abajo y tambien aceptan flechas y rueda.
+- Pickup evita saltos al mover perillas o faders MIDI.
+
+LIMITES
+Es una alpha: el diseño se aproxima al original, no hay paridad completa.
+No incluye proyectos/setlists, grabacion, plugins, ASIO, bancos, instrumentos
+adicionales ni todas las paginas y gestos de macOS. ROLL no sigue aun un BPM.
+La carga individual de stems sigue disponible en Cargar. Limite de audio
+precargado: 1 GB. Se usa WASAPI compartido y 48 kHz internos.
+No se promete separacion perfecta: algunas canciones dejan residuos entre stems.
+
+DEPENDENCIAS Y AVISOS
+DSP original y port Windows: MIT. miniaudio 0.11.23 y ONNX Runtime CPU 1.19.2
+se fijan en CMake. Se incluyen avisos en licenses. Los modelos htdemucs_ft de
+Meta/StemSplitio se descargan de Hugging Face en una revision fija y no se
+redistribuyen en el ZIP. Consulta NOTICE para los avisos originales de modelos.

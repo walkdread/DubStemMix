@@ -8,7 +8,22 @@ Este repositorio es un **fork de trabajo** de [yoanbernabeu/DubStemMix](https://
 
 [![Windows alpha](https://github.com/walkdread/DubStemMix/actions/workflows/windows-alpha.yml/badge.svg?branch=port/windows-alpha)](https://github.com/walkdread/DubStemMix/actions/workflows/windows-alpha.yml)
 
-> **Estado:** alpha 0.1. Todavía no es la versión completa de macOS. No la uses como única consola en una actuación hasta completar las pruebas de estabilidad con tu hardware.
+> **Estado:** alpha 0.2. Todavía no es la versión completa de macOS. No la uses como única consola en una actuación hasta completar las pruebas de estabilidad con tu hardware.
+
+## Novedades de la alpha 0.2
+
+La consola ahora tiene un diseño oscuro inspirado en macOS, perillas y faders verticales.
+**ABRIR CANCION** prepara una canción completa con ONNX Runtime CPU: descarga los modelos
+con confirmación, verifica SHA256, muestra progreso y carga cuatro stems alineados.
+El audio se procesa localmente. **Carpeta de datos** permite guardar modelos y stems en D:.
+
+Los canales 5 y 6 vacíos son **Siren** y **Syndrum**; al cargarles una pista vuelven a ser
+canales de audio. Se añaden pitch/rate/decay, HOLD/RISE/HIT/ROLL, plate/spring,
+phaser/flanger, tiempo/feedback y gestos de delay. Consulta la guía incluida para el mapeo.
+
+Extrae el ZIP completo: `onnxruntime.dll` y los runtimes incluidos deben quedar junto al
+`.exe`. Conserva la versión anterior mientras pruebas la nueva. La separación inicial
+puede tardar varios minutos y necesita hasta 663 MB de descarga. Máximo 10 minutos por canción.
 
 ## Qué funciona hoy
 
@@ -16,7 +31,8 @@ Este repositorio es un **fork de trabajo** de [yoanbernabeu/DubStemMix](https://
 |---|---|
 | Compilación nativa Windows x64 | ✅ GCC/MinGW y ClangCL/MSVC |
 | Seis pistas de stems | ✅ WAV, FLAC y MP3, convertidos a 48 kHz estéreo |
-| Tres buses de efectos | ✅ delay, plate reverb y phaser |
+| Tres buses de efectos | ✅ delay, plate/spring y phaser/flanger |
+| Instrumentos | ✅ Siren y Syndrum en canales 5/6 vacíos |
 | Retornos y master | ✅ faders 7 y 8, master y limiter |
 | Akai MIDImix | ✅ WinMM, pickup, LEDs de MUTE/SOLO |
 | Selección de salida | ✅ WASAPI compartido |
@@ -24,10 +40,10 @@ Este repositorio es un **fork de trabajo** de [yoanbernabeu/DubStemMix](https://
 | Carga de stems | ✅ un archivo por pista, alineados desde el inicio |
 | Persistencia de proyectos | ❌ pendiente |
 | Grabación / exportación | ❌ pendiente |
-| Separación automática de stems | ❌ pendiente |
+| Separación automática de stems | ✅ ONNX CPU, descarga verificada, progreso y cancelación entre bloques |
 | Plugins VST3 / AU | ❌ pendiente |
 | ASIO | ❌ pendiente |
-| Paridad visual con macOS | 🟡 interfaz Win32 funcional, no idéntica |
+| Paridad visual con macOS | 🟡 consola oscura con perillas/faders; no paridad completa |
 
 ## Requisitos
 
@@ -160,7 +176,7 @@ cmake --build build-windows --config Release --parallel 2
 ctest --test-dir build-windows -C Release --output-on-failure
 ```
 
-En MinGW, `CMakeLists.txt` añade automáticamente `-municode` (para `wWinMain`) y `-static` (para que el `.exe` no dependa de DLLs de GCC). El ejecutable resultante solo depende de DLLs del sistema: `KERNEL32`, `USER32`, `GDI32`, `COMCTL32`, `COMDLG32`, `WINMM` y `msvcrt`.
+En MinGW, `CMakeLists.txt` añade automáticamente `-municode` (para `wWinMain`) y `-static` (para que el `.exe` no dependa de DLLs de GCC). La base 0.1 dependía solamente de DLLs del sistema; la 0.2 añade `onnxruntime.dll` y su runtime incluido. DLLs del sistema: `KERNEL32`, `USER32`, `GDI32`, `COMCTL32`, `COMDLG32`, `WINMM` y `msvcrt`.
 
 ## Primer uso
 
@@ -232,12 +248,11 @@ Esta alpha **no** implementa todavía:
 
 - Guardar/abrir proyectos `.dubstem` ni setlists `.dubset`.
 - Grabación de sesiones, exportación WAV/MP3 ni tracklist.
-- Separación automática de stems con htdemucs/ONNX.
 - Plugins VST3/AU ni aislamiento de plugins.
 - ASIO, baja latencia garantizada o soporte de 192 kHz.
-- Bancos, REC ARM, instrumentos, envíos entre buses ni la UI completa de macOS.
+- Bancos, envíos entre buses ni todas las páginas de macOS. REC ARM tiene gestos en los canales 5–8.
 - Actualizador automático, instalador firmado o desinstalador.
-- Pruebas con hardware físico validadas por el autor de este fork.
+- Validación prolongada de la alpha 0.2 con hardware físico. El usuario confirmó audio, MIDI y stems sincronizados en la alpha 0.1 con Windows 10, MIDImix y Xenyx 302 USB.
 
 Los stems deben estar precargados y alineados. Si los stems tienen silencios iniciales distintos, la mezcla sonará desfasada. Para la primera prueba usa WAV sin silencios iniciales y con la misma frecuencia de muestreo.
 
@@ -248,7 +263,7 @@ Los stems deben estar precargados y alineados. Si los stems tienen silencios ini
 | M1 | Base DSP portable, CMake, tests y app Windows mínima | ✅ |
 | M2 | Paridad de audio y controles: parámetros de efectos, mute/solo, master, buses, UI más cercana a macOS | 🟡 en curso |
 | M3 | Proyectos, setlists, carga/guardado, grabación WAV y exportación | ⏳ |
-| M4 | Separación de stems con ONNX Runtime CPU y cola de preparación | ⏳ |
+| M4 | Separación ONNX CPU | 🟡 preparación de una canción; cola de varias canciones pendiente |
 | M5 | VST3, ASIO, instalador, firma y actualizaciones | ⏳ |
 
 ## Solución de problemas
@@ -284,7 +299,7 @@ El `Makefile` usa rutas relativas, pero si ejecutas CMake a mano, entrecomilla t
 Instala el toolchain en `D:` y pasa `TOOLCHAIN=...` a `make`. Los builds van a `build-windows/` dentro del proyecto.
 
 **El antivirus bloquea el `.exe`.**
-La alpha no está firmada digitalmente. Añade una exclusión temporal solo si confías en el binario que acabas de compilar.
+La alpha no está firmada digitalmente. Conserva el texto exacto del aviso y comprueba que descargaste el artifact del workflow de este repositorio; reporta el aviso antes de continuar.
 
 ## Documentación
 
