@@ -29,6 +29,9 @@ class Mixer {
     std::array<DubEffect*, 2> instruments{};
     float voice[2][quantum]{};
     uint64_t cursor = 0;
+    std::atomic<uint64_t> seekTarget{UINT64_MAX};
+    unsigned seekFade=0;
+    float lastOutput[2]{},seekFrom[2]{};
     float smoothMaster = 0;
     std::array<float, buses> smoothReturn{};
     float dry[2][quantum]{}, inputs[buses][2][quantum]{}, wet[2][quantum]{};
@@ -78,12 +81,13 @@ public:
     void reset() {
         releaseInstruments();
         for (auto* e : instruments) dub_effect_prepare(e,rate);
-        playing.store(false); cursor = 0; position.store(0); peak.store(0);
+        playing.store(false); seekTarget.store(UINT64_MAX);seekFade=0;lastOutput[0]=lastOutput[1]=0; cursor = 0; position.store(0); peak.store(0);
         smoothMaster = 0; smoothReturn.fill(0);
         for (auto& s : strip) { s.smoothLevel = 0; s.smoothSend.fill(0); }
         for (auto* e : fx) dub_effect_prepare(e, rate);
         dub_effect_prepare(limiter, rate);
     }
+    void seek(uint64_t frame) noexcept { seekTarget.store(std::min<uint64_t>(frame,totalFrames()),std::memory_order_release); }
     size_t totalFrames() const {
         size_t n = 0; for (const auto& s : strip) n = std::max(n, s.samples.size()/2); return n;
     }
@@ -91,6 +95,8 @@ public:
     void render(float* output, unsigned frames) noexcept {
         float blockPeak = 0;
         for (unsigned offset = 0; offset < frames; offset += quantum) {
+            const auto targetPosition=seekTarget.exchange(UINT64_MAX,std::memory_order_acquire);
+            if(targetPosition!=UINT64_MAX){cursor=std::min<uint64_t>(targetPosition,totalFrames());seekFade=128;seekFrom[0]=lastOutput[0];seekFrom[1]=lastOutput[1];}
             const unsigned n = std::min(quantum, frames - offset);
             for (auto& c : dry) std::fill_n(c, n, 0.0f);
             for (auto& b : inputs) for (auto& c : b) std::fill_n(c, n, 0.0f);
@@ -137,7 +143,11 @@ public:
             dub_effect_process(limiter, dry[0], dry[1], wet[0], wet[1], static_cast<int>(n));
             for (unsigned i = 0; i < n; ++i) for (unsigned c = 0; c < 2; ++c) {
                 const float x = std::isfinite(wet[c][i]) ? std::clamp(wet[c][i], -1.0f, 1.0f) : 0;
-                output[(offset+i)*2+c] = x; blockPeak = std::max(blockPeak, std::abs(x));
+                const float blend=seekFade?float(seekFade)/128.0f:0;
+                const float sample=x*(1-blend)+seekFrom[c]*blend;
+                output[(offset+i)*2+c] = sample;lastOutput[c]=sample;
+                if(c==1 && seekFade)--seekFade;
+                blockPeak = std::max(blockPeak, std::abs(sample));
             }
             if (run) { cursor += n; if (cursor >= totalFrames()) playing.store(false); }
         }

@@ -16,6 +16,7 @@
 #include "miniaudio.h"
 #include "Separator.h"
 #include "Overlap.h"
+#include "PlaybackCache.h"
 
 extern "C" OrtStatus* ORT_API_CALL OrtSessionOptionsAppendExecutionProvider_DML(OrtSessionOptions*, int);
 
@@ -80,7 +81,8 @@ std::vector<float> decode(const fs::path& file,unsigned rate,std::atomic<bool>& 
     ma_decoder d{};auto config=ma_decoder_config_init(ma_format_f32,2,rate);
     if(ma_decoder_init_file_w(file.c_str(),&config,&d)!=MA_SUCCESS)throw std::runtime_error("No se pudo leer el audio. Prueba un WAV");
     std::vector<float> data;
-    try {float block[8192];for(;;){cancelled(cancel);ma_uint64 read=0;auto r=ma_decoder_read_pcm_frames(&d,block,4096,&read);
+    try {ma_uint64 length=0;if(ma_decoder_get_length_in_pcm_frames(&d,&length)==MA_SUCCESS && length && length<=uint64_t(rate)*600)data.reserve(size_t(length)*2);
+        float block[8192];for(;;){cancelled(cancel);ma_uint64 read=0;auto r=ma_decoder_read_pcm_frames(&d,block,4096,&read);
         if(r!=MA_SUCCESS && r!=MA_AT_END)throw std::runtime_error("Error de lectura de audio");
         if(data.size()+read*2>size_t(rate)*600*2)throw std::runtime_error("Esta version permite canciones de hasta 10 minutos");
         for(size_t i=0;i<read*2;++i)if(!std::isfinite(block[i]))throw std::runtime_error("El audio contiene muestras invalidas");
@@ -166,12 +168,26 @@ fs::path prepareSong(const fs::path& file,std::atomic<bool>& cancel,const Progre
     }
     return folder;
 }
-std::array<std::vector<float>,4> loadPrepared(const fs::path& folder,std::atomic<bool>& cancel){
+static std::array<std::vector<float>,4> loadPreparedRaw(const fs::path& folder,std::atomic<bool>& cancel){
     std::ifstream manifest(folder/L"complete.txt");
     for(int row=0;row<4;++row){std::string hash;manifest>>hash;if(hash.empty() || sha256(folder/(std::wstring(modelNames[row])+L".wav"),cancel)!=hash)throw std::runtime_error("Stems incompletos. Reintenta el analisis.");}
     std::array<std::vector<float>,4> result;const int order[]={0,1,2,3};
     for(int t=0;t<4;++t)result[t]=decode(folder/(std::wstring(modelNames[order[t]])+L".wav"),48000,cancel);
     for(auto& stem:result)if(stem.size()!=result[0].size())throw std::runtime_error("Stems desalineados");
+    return result;
+}
+std::array<std::vector<float>,4> loadPrepared(const fs::path& folder,std::atomic<bool>& cancel,std::vector<float>* waveform){
+    // Source identity includes the verified manifest and all four WAV sizes/timestamps.
+    auto stamp=sha256(folder/L"complete.txt",cancel);
+    for(auto name:modelNames){auto f=folder/(std::wstring(name)+L".wav");stamp+="/"+std::to_string(fs::file_size(f))+"/"+std::to_string(fs::last_write_time(f).time_since_epoch().count());}
+    auto signature=cacheHash(stamp.data(),stamp.size());auto file=folder/L"playback-48k-v1.pcm";
+    StemAudio result;std::vector<float> peaks;
+    if(!readPlaybackCache(file,signature,result,peaks,cancel)){
+        // Free partial/obsolete data before decoding, so a corrupt cache cannot double the working set.
+        result={};peaks.clear();result=loadPreparedRaw(folder,cancel);peaks=makeWaveform(result);
+        writePlaybackCache(file,signature,result,peaks,cancel); // A full disk must not prevent playback.
+    }
+    if(waveform)*waveform=std::move(peaks);
     return result;
 }
 std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<bool>& cancel,const Progress& progress){
@@ -180,6 +196,11 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
 }
 
 namespace dubwin {
+void createPreviewSong(const fs::path& folder,int variant){
+    fs::create_directories(folder);std::atomic<bool> cancel{false};std::ofstream manifest(folder/L"complete.txt");
+    for(int t=0;t<4;++t){std::vector<float> samples(44100*2*8);for(size_t f=0;f<samples.size()/2;++f){float v=0.1f*std::sin(float(f)*(0.01f+0.003f*t+0.001f*variant))*(0.2f+0.8f*std::abs(std::sin(float(f)*0.00003f)));samples[f*2]=samples[f*2+1]=v;}
+        auto file=folder/(std::wstring(modelNames[t])+L".wav");writeWave(file,samples);manifest<<sha256(file,cancel)<<"\n";}
+}
 int separationSelfTest() {
     try {
         const auto file=dataRoot()/L"Test"/L"synthetic.wav";fs::create_directories(file.parent_path());

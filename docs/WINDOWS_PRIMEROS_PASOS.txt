@@ -1,4 +1,4 @@
-DubStemMix para Windows x64 — alpha 0.4.2
+DubStemMix para Windows x64 — alpha 0.5.0
 
 NOVEDADES
 - Correccion de repintado: textos solo cuando cambian, forma de onda/medidor por
@@ -116,3 +116,16 @@ NOVEDADES 0.4.2
 - Alt + clic en Mute activa Solo. Clic en ese boton cuando indica SOLO lo desactiva.
 - Tambien puedes usar los botones Solo individuales. CLEAR SOLO, encima del master, quita todos los solos y conserva los mutes anteriores.
 - MIDImix: mantener SOLO y pulsar MUTE del canal.
+
+NOVEDADES 0.5.0
+- SIGUIENTE busca la siguiente cancion Lista. Si estas reproduciendo, la actual sigue hasta cargar la nueva, que empieza desde el inicio. No es un crossfade. Si estas en pausa, carga sin reproducir.
+- Espacio: Play/Pausa (sin repetir mientras mantienes la tecla). BANK LEFT: Play. BANK RIGHT: reiniciar. SOLO+MUTE 7: pausa.
+- REC ARM 1-4: Solo de bateria, bajo, otros y voz; sus LEDs reflejan Solo.
+- Se actualiza la asignacion antigua de transporte una vez. Despues puedes personalizarla en Transporte.
+- Clic o arrastra en la onda para cambiar la posicion sincronizada de los cuatro stems. La onda ocupa la anchura disponible.
+- Preferencias > Salida de audio: seleccion de interfaz, guardada entre sesiones. Debes pausar antes de cambiarla.
+- Indicadores pequenos OUT y MIDI. No hay captura de entrada de audio.
+- Avisos y confirmaciones con el estilo oscuro de la consola. Los selectores de archivos y carpetas siguen siendo los de Windows.
+- La primera carga de stems existentes genera playback-48k-v1.pcm (audio float32 sin perdida y onda resumida). Las siguientes cargas evitan reconversion y lecturas duplicadas de los WAV. Ocupa espacio adicional en disco, aproximadamente 92 MB por minuto.
+- Buffers dimensionados al audio real: evita el crecimiento repetido de memoria. Solo se mantiene la cancion actual y, durante SIGUIENTE, temporalmente la nueva. No se precarga toda la lista.
+- La cache comprueba integridad y cambia si se modifican los stems. Si no hay espacio para guardarla, los stems siguen cargando por la ruta normal.
