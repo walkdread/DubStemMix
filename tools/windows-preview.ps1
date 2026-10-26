@@ -23,6 +23,11 @@ try {
   foreach ($view in @(@(1280,850,$Output), @(1024,700,($Output -replace '.png$','-compact.png')))) {
     [void][WindowCapture]::SetWindowPos($app.MainWindowHandle,[IntPtr]::Zero,0,0,$view[0],$view[1],4)
     Start-Sleep -Milliseconds 350
+    $before = [WindowCapture]::SendMessage($app.MainWindowHandle,0x8014,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
+    Start-Sleep -Milliseconds 1200
+    $after = [WindowCapture]::SendMessage($app.MainWindowHandle,0x8014,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
+    if (($after - $before) -gt 2) { throw "Idle console is repainting continuously: $($after-$before) paints" }
+    Write-Output "PASS idle repaint: $($after-$before) paints in 1.2s"
     $rect = New-Object WindowCapture+RECT
     [void][WindowCapture]::GetWindowRect($app.MainWindowHandle, [ref]$rect)
     $bitmap = New-Object System.Drawing.Bitmap(($rect.Right-$rect.Left), ($rect.Bottom-$rect.Top))

@@ -30,6 +30,7 @@ HFONT font{},headingFont{},smallFont{};
 struct Placement{HWND h;int x,y,w,height;};std::vector<Placement> placements;
 HWND clockLabel{},modeLabel{};
 bool uiReady=false;
+unsigned long paintCount=0;
 void relayout();
 float layoutX=1,layoutY=1;
 int sx(int v){return static_cast<int>(std::lround(v*layoutX));}
@@ -527,13 +528,14 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_ERASEBKGND:return 1;
     case WM_SIZE:if(uiReady && wp!=SIZE_MINIMIZED)relayout();return 0;
     case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={1000,640};info->ptMaxTrackSize={8192,8192};return 0;}
-    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);theme::PaintBuffer paint(dc,r);paintConsole(paint.dc);paint.present();EndPaint(h,&ps);return 0;}
+    case WM_PAINT:{++paintCount;PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);theme::PaintBuffer paint(dc,r);paintConsole(paint.dc);paint.present();EndPaint(h,&ps);return 0;}
     case WM_MEASUREITEM:{auto item=reinterpret_cast<MEASUREITEMSTRUCT*>(lp);if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item->CtlID==900)drawSong(item);else theme::button(item);return TRUE;}
     case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);int id=GetDlgCtrlID(reinterpret_cast<HWND>(lp));SetTextColor(dc,(id==924||id==925)?theme::red:(id==926?theme::gold:(id==927?theme::green:theme::text)));SetBkMode(dc,TRANSPARENT);
         RECT child;GetWindowRect(reinterpret_cast<HWND>(lp),&child);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&child),2);
         bool panel=child.left>=sx(240)&&child.top>=sy(208)&&child.top<sy(773);SetBkColor(dc,panel?theme::panel:theme::background);return reinterpret_cast<LRESULT>(panel?theme::surface():theme::bg());}
     case midiMessage:handleMidi(static_cast<DWORD>(wp));return 0;
+    case WM_APP+20:return paintCount; // Read-only idle repaint regression probe.
     case WM_TIMER:updateStatus();return 0;
     case WM_HSCROLL:{
         HWND s=reinterpret_cast<HWND>(lp);if(!s)break;int id=GetDlgCtrlID(s);float value=static_cast<float>(SendMessageW(s,TBM_GETPOS,0,0))/127;
