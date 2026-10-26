@@ -1,4 +1,4 @@
-DubStemMix para Windows x64 — alpha 0.2
+DubStemMix para Windows x64 — alpha 0.3
 
 NOVEDADES
 - Consola oscura inspirada en macOS, perillas, faders verticales y vista de onda.
@@ -13,25 +13,46 @@ ABRIR
    a su lado. No copies solamente el ejecutable.
 3. Selecciona la salida USB y conecta MIDImix. Baja el volumen de escucha.
 
-PREPARAR UNA CANCION
-1. Opcional: pulsa Carpeta de datos y elige una carpeta en D: si C: tiene poco espacio.
-   Se crea una subcarpeta DubStemMix. El cambio no mueve archivos anteriores.
-2. Pulsa ABRIR CANCION y elige un MP3, FLAC o WAV de hasta 10 minutos.
-3. Lee y acepta el aviso. La primera vez descarga hasta 663 MB de modelos.
-   Requiere Internet para descargar; la cancion nunca se envia a un servidor.
-   Tras descargar los modelos, la separacion funciona sin Internet.
-4. Espera: se muestran descarga, verificacion, instrumento y bloque de audio.
-   El procesamiento usa CPU; esta version no utiliza la tarjeta NVIDIA.
-5. Al terminar se cargan las cuatro pistas alineadas. Pulsa PLAY.
-   Canales 5 y 6 quedan libres para instrumentos. Preparar reemplaza las pistas
-   solo cuando termina correctamente; cancelar/fallar conserva las anteriores.
-6. Preparar de nuevo el mismo archivo reutiliza los stems guardados y verificados.
+LISTA Y PREPARACION EN SEGUNDO PLANO
+1. En Archivo > Carpeta de datos puedes elegir D:. Cambiarla no mueve datos anteriores.
+2. En Preferencias elige Stems: Rapido (htdemucs, un modelo de 166 MB) o Calidad
+   (htdemucs_ft, cuatro modelos, 663 MB). Rapido es el modo inicial de esta version.
+3. Archivo > Agregar canciones: elige uno o varios MP3/FLAC/WAV de hasta 10 minutos.
+   Puedes seleccionar varios con Ctrl. Acepta la descarga inicial de los modelos.
+4. Abre LISTA CANCIONES. Se procesan de una en una: En cola, Analizando, Lista.
+   Puedes seguir reproduciendo, mezclando, usar MIDI, Siren y efectos mientras tanto.
+5. Cuando la siguiente este Lista, pulsa PAUSA y Cargar seleccionada en la lista
+   (tambien doble clic). Espera a que su titulo aparezca en la consola y pulsa PLAY.
+   Nunca reemplazamos automaticamente la cancion que esta sonando.
+6. La lista se conserva al cerrar. Los stems se guardan en disco, no toda la lista
+   en RAM. Los pendientes al reabrir necesitan seleccionar Reintentar.
+7. Pausar cola deja terminar el trabajo actual. Cancelar proceso cancela el actual
+   entre bloques y pausa la cola. Continuar cola permite seguir con los pendientes.
+8. Quitar elimina la entrada, no los archivos originales ni los stems guardados.
+   Por ahora hay una lista persistente (maximo 1000 entradas), no multiples setlists.
 
-Cancelar proceso solicita detenerse al finalizar el bloque de inferencia actual;
-no siempre es instantaneo. No se permite reproducir ni cambiar pistas mientras
-se prepara una cancion. Los modelos se verifican por tamano y SHA256.
-Por defecto, datos en %LOCALAPPDATA%\DubStemMix. Las canciones ya preparadas se
-conservan como WAV dentro de Stems. Puede hacer falta varios GB de espacio libre.
+MODELOS Y GPU
+- Tras descargar el modelo elegido, funciona sin Internet. No subimos canciones.
+- Rapido y Calidad guardan resultados separados; los stems anteriores de Calidad
+  siguen siendo reutilizables. El audio original debe existir para agregar/reanalizar.
+- Preferencias > GPU experimental: elige NVIDIA GeForce GTX 1650, no Vega integrada.
+  Se usa ONNX Runtime DirectML. No hace falta instalar Python ni CUDA Toolkit.
+- GPU NO esta validada en tu hardware: la compatibilidad del controlador, memoria
+  y velocidad real deben probarse. Algunas operaciones pueden ejecutarse en CPU.
+  Si falla, selecciona CPU y Reintentar. No hay retorno automatico a CPU.
+- Cambiar GPU afecta al siguiente trabajo; cambiar Rapido/Calidad a nuevas entradas.
+- El modo CPU usa 2 hilos sin espera activa, y el trabajador tiene prioridad baja.
+- El analisis puede competir por recursos: verifica audio sin cortes antes de un show.
+- Los archivos se verifican por SHA256; limite 10 minutos por cancion.
+
+TRANSPORTE MIDIMIX
+- BANK LEFT (nota 25): Pausa.
+- BANK RIGHT (nota 26): Reiniciar al comienzo y quedar detenido.
+- SOLO del canal 7 (nota 20): Play por defecto; tambien hay PLAY en pantalla.
+- Transporte > Aprender boton Play/Pausa/Reiniciar: pulsa un boton que envie nota.
+  La asignacion se guarda y reemplaza su accion anterior. No aprende perillas CC.
+- SEND ALL transmite posiciones de los controles, no una nota de transporte.
+  NO esta asignado a Play: podria cambiar la mezcla. No hemos modificado el hardware.
 
 INSTRUMENTOS
 Si los canales 5/6 contienen un archivo, pulsa Detener y Vaciar para recuperar
@@ -67,7 +88,7 @@ EFECTOS
 
 LIMITES
 Es una alpha: el diseño se aproxima al original, no hay paridad completa.
-No incluye proyectos/setlists, grabacion, plugins, ASIO, bancos, instrumentos
+No incluye proyectos completos/multiples setlists, grabacion, plugins, ASIO, bancos, instrumentos
 adicionales ni todas las paginas y gestos de macOS. ROLL no sigue aun un BPM.
 La carga individual de stems sigue disponible en Cargar. Limite de audio
 precargado: 1 GB. Se usa WASAPI compartido y 48 kHz internos.

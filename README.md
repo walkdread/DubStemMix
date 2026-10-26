@@ -1,3 +1,8 @@
+> **Windows alpha 0.3:** lista persistente y cola de separacion mientras reproduce,
+> modo Rapido (HTDemucs) / Calidad (FT), menus y transporte MIDI configurable.
+> DirectML GPU es experimental; requiere prueba en hardware. SEND ALL no es Play.
+> Consulta [LEEME Windows](docs/WINDOWS_PRIMEROS_PASOS.txt) para instrucciones actuales.
+
 <p align="center"><img src="Design/AppIcon-1024.png" width="128" alt="DubStemMix icon"></p>
 
 # DubStemMix para Windows

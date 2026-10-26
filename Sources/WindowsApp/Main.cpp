@@ -193,7 +193,7 @@ void handleMidi(DWORD message) {
         if(d1==61)midiValue(d2,mixer->returns[1],returnPickup[1],returns[1]);
     }else if(type==0x90 || type==0x80){
         const bool down=type==0x90 && d2!=0;
-        if(d1==27){soloHeld=down;return;}
+        if(d1==27 && transportNotes[0]!=27 && transportNotes[1]!=27 && transportNotes[2]!=27){soloHeld=down;return;}
         const bool edge=down && !pressed[d1];pressed[d1]=down;
         for(int i=0;i<3;++i)if(edge && d1==transportNotes[i]){SendMessageW(window,WM_COMMAND,i==0?idPlay:(i==1?idPause:idStop),0);return;}
         for(int t=4;t<6;++t)if(mixer->isInstrument(t)){
@@ -211,6 +211,7 @@ void handleMidi(DWORD message) {
     }
 }
 void loadTrack(int track) {
+    if(loading){error(L"Espera a que termine la carga seleccionada.");return;}
     if(mixer->playing.load()){error(L"Pulsa Detener antes de cargar pistas. La carga reinicia la posicion de todas las pistas.");return;}
     wchar_t path[32768]{}; OPENFILENAMEW dialog{};dialog.lStructSize=sizeof dialog;dialog.hwndOwner=window;
     dialog.lpstrFilter=L"Audio (WAV, FLAC, MP3)\0*.wav;*.flac;*.mp3\0\0";
@@ -303,7 +304,7 @@ void effectAction(int action,bool on) {
 }
 void setProgress(const std::wstring& text){std::lock_guard<std::mutex> lock(progressMutex);progressText=text;}
 // The queue owns paths only. A preparation worker never touches the live mixer.
-std::filesystem::path settingsFile(){auto p=dubwin::configRoot();std::filesystem::create_directories(p);return p/L"library.ini";}
+std::filesystem::path settingsFile(){auto p=dubwin::configRoot();std::filesystem::create_directories(p);auto f=p/L"library.ini";if(!std::filesystem::exists(f)){std::ofstream out(f,std::ios::binary);out.put(char(0xff));out.put(char(0xfe));}return f;}
 void saveLibrary(){
     try{auto f=settingsFile();auto put=[&](const wchar_t* section,const std::wstring& key,const std::wstring& value){WritePrivateProfileStringW(section,key.c_str(),value.c_str(),f.c_str());};
         put(L"Preferences",L"Fast",fastMode?L"1":L"0");put(L"Preferences",L"GPU",std::to_wstring(gpuDevice));
@@ -457,14 +458,14 @@ void buildUI() {
     control(L"STATIC",L"PHS RETURN",SS_CENTER,959,530,106,20);returns[2]=dial(982,559,58,62,idReturn+2,0.5f);
     status=control(L"STATIC",L"",0,12,706,1050,28);
     SendMessageW(deviceList,CB_SETDROPPEDWIDTH,450,0);
-    enumerateAudio();connectMidi();loadLibrary();adapters=dubwin::gpuAdapters();buildMenus();
+    enumerateAudio();connectMidi();
     for(int e=0;e<6;++e)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(fxDials[e]));
     for(int t=4;t<6;++t)for(int b=0;b<2;++b)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(sends[t][b]));
     SetTimer(window,1,150,nullptr);
 }
 LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     switch(message){
-    case WM_CREATE:{window=h;RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1080;layoutY=float(r.bottom)/740;buildUI();return 0;}
+    case WM_CREATE:{window=h;loadLibrary();adapters=dubwin::gpuAdapters();buildMenus();RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1080;layoutY=float(r.bottom)/740;buildUI();return 0;}
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);FillRect(dc,&r,theme::bg());
         for(int i=0;i<9;++i){RECT strip{150+i*100,210,246+i*100,692};if(i==8)strip.right=1068;strip={sx(strip.left),sy(strip.top),sx(strip.right),sy(strip.bottom)};FillRect(dc,&strip,theme::surface());}
@@ -508,7 +509,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
         if(id==idSong){startPreparation();return 0;}
         if(id==idPanic){mixer->panic();resetGestures();for(auto& row:instrumentOn)for(auto& on:row)on=false;for(int t=4;t<6;++t)syncInstrumentUI(t);return 0;}
         if(id>=idFX && id<idFX+6){int a=id-idFX;effectAction(a,!fxOn[a]);return 0;}
-        if(id>=idClear && id<idClear+6){if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;SetWindowTextW(names[t],L"Sin pista");syncInstrumentUI(t);resetPickup();return 0;}
+        if(id>=idClear && id<idClear+6){if(loading)return 0;if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;SetWindowTextW(names[t],L"Sin pista");syncInstrumentUI(t);resetPickup();return 0;}
         if(id>=idLoad && id<idLoad+6){loadTrack(id-idLoad);return 0;}
         if(id>=idMute && id<idMute+6){int t=id-idMute;if(mixer->isInstrument(t)){instrumentAction(t-4,0,t==4?!instrumentOn[0][0]:true);return 0;}mixer->strip[t].mute=!mixer->strip[t].mute.load();syncButtons(t);return 0;}
         if(id>=idSolo && id<idSolo+6){int t=id-idSolo;if(mixer->isInstrument(t)){instrumentAction(t-4,1,!instrumentOn[t-4][1]);return 0;}mixer->strip[t].solo=!mixer->strip[t].solo.load();syncButtons(t);return 0;}
