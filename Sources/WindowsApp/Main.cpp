@@ -164,7 +164,7 @@ void connectMidi() {
         }else midiIn=nullptr;
         break;}}
     for(int t=0;t<6;++t)syncButtons(t);
-    SetWindowTextW(midiLabel,midiIn?L"MIDImix conectado (pickup activo)":L"MIDImix no disponible. Conecta y pulsa Reconectar MIDI.");
+    SetWindowTextW(midiLabel,midiIn?L"MIDImix conectado (pickup activo)":L"MIDImix desconectado.\nReconecta en Preferencias.");
 }
 void midiValue(int value,std::atomic<float>& target,dubwin::Pickup& pickup,HWND h) {
     if(pickup.accept(value,target.load())){target.store(value/127.0f);SendMessageW(h,TBM_SETPOS,TRUE,value);}
@@ -409,7 +409,7 @@ void buildMenus(){
 void relayout(){
     RECT r;GetClientRect(window,&r);if(!r.right||!r.bottom)return;
     layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;
-    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,sy(size)),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");};
+    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,sy(size)),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,size==11?L"JetBrains Mono":L"Archivo");};
     auto old=font,oldHeading=headingFont,oldSmall=smallFont;font=make(13,FW_SEMIBOLD);headingFont=make(20,FW_HEAVY);smallFont=make(11,FW_NORMAL);
     SendMessageW(window,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);
     auto batch=BeginDeferWindowPos(int(placements.size()));
@@ -568,6 +568,9 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
     if(command && wcsstr(command,L"--check-separation"))return dubwin::separationSelfTest();
     try {
         SetProcessDPIAware();
+        wchar_t executable[32768]{};GetModuleFileNameW(nullptr,executable,32768);auto fontFolder=std::filesystem::path(executable).parent_path()/L"fonts";
+        AddFontResourceExW((fontFolder/L"Archivo-Variable.ttf").c_str(),FR_PRIVATE,nullptr);
+        AddFontResourceExW((fontFolder/L"JetBrainsMono-Variable.ttf").c_str(),FR_PRIVATE,nullptr);
         CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
         Gdiplus::GdiplusStartupInput graphicsInput;ULONG_PTR graphicsToken=0;
         if(Gdiplus::GdiplusStartup(&graphicsToken,&graphicsInput,nullptr)!=Gdiplus::Ok)return 1;
