@@ -34,7 +34,7 @@ jobs:
         with:
           name: Windows-verification
           path: |
-            windows-preview.png
+            windows-preview*.png
             separation-test.log
       - name: Upload downloadable application
         uses: actions/upload-artifact@v4

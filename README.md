@@ -1,4 +1,5 @@
-> **Windows alpha 0.3:** lista persistente y cola de separacion mientras reproduce,
+> Interfaz 0.4: biblioteca integrada, consola inspirada en macOS, perillas con arcos y ventana ajustable.
+> **Windows alpha 0.4:** lista persistente y cola de separacion mientras reproduce,
 > modo Rapido (HTDemucs) / Calidad (FT), menus y transporte MIDI configurable.
 > DirectML GPU es experimental; requiere prueba en hardware. SEND ALL no es Play.
 > Consulta [LEEME Windows](docs/WINDOWS_PRIMEROS_PASOS.txt) para instrucciones actuales.

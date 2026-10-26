@@ -26,7 +26,11 @@ constexpr int idSong=20,idCancel=21,idPanic=22,idDataFolder=23,idClear=30,idInst
 constexpr int idLoad=100,idLevel=200,idMute=300,idSolo=400,idSend=500,idReturn=600,idMaster=610;
 HWND window{},status{},deviceList{},midiLabel{};
 HWND levels[6]{},names[6]{},mutes[6]{},solos[6]{},sends[6][3]{},returns[3]{},masterSlider{};
-HFONT font{};
+HFONT font{},headingFont{},smallFont{};
+struct Placement{HWND h;int x,y,w,height;};std::vector<Placement> placements;
+HWND clockLabel{},modeLabel{};
+bool uiReady=false;
+void relayout();
 float layoutX=1,layoutY=1;
 int sx(int v){return static_cast<int>(std::lround(v*layoutX));}
 int sy(int v){return static_cast<int>(std::lround(v*layoutY));}
@@ -86,11 +90,12 @@ HWND control(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int 
     if(wcscmp(cls,L"BUTTON")==0) style=(style&~0xFu)|BS_OWNERDRAW;
     auto c=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,sx(x),sy(y),sx(w),sy(h),window,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
-    SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE); return c;
+    placements.push_back({c,x,y,w,h});SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE); return c;
 }
 HWND dial(int x,int y,int w,int h,int id,float value,bool fader=false) {
     auto c=CreateWindowExW(0,L"DubDial",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP,sx(x),sy(y),sx(w),sy(h),window,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),fader?reinterpret_cast<void*>(1):nullptr);
+    placements.push_back({c,x,y,w,h});
     SendMessageW(c,TBM_SETPOS,TRUE,static_cast<LPARAM>(std::lround(value*127)));return c;
 }
 void led(int note,bool on) {if(midiOut)midiOutShortMsg(midiOut,0x90u|(static_cast<DWORD>(note)<<8)|(on?127u<<16:0));}
@@ -244,6 +249,13 @@ void loadTrack(int track) {
 }
 void updateStatus() {
     pollPreparation();
+    theme::active(GetDlgItem(window,idPlay),mixer->playing.load());
+    theme::active(GetDlgItem(window,idPause),!mixer->playing.load()&&mixer->position.load()>0);
+    for(int t=0;t<6;++t){theme::active(mutes[t],mixer->isInstrument(t)?instrumentOn[t-4][0]:mixer->strip[t].mute.load());theme::active(solos[t],mixer->isInstrument(t)?instrumentOn[t-4][1]:mixer->strip[t].solo.load());}
+    for(int i=0;i<6;++i)theme::active(fxButtons[i],fxOn[i]);
+    auto elapsed=mixer->position.load()/dubwin::rate,total=mixer->totalFrames()/dubwin::rate;
+    wchar_t clock[80];swprintf_s(clock,L"%02llu:%02llu / %02llu:%02llu",(unsigned long long)(elapsed/60),(unsigned long long)(elapsed%60),(unsigned long long)(total/60),(unsigned long long)(total%60));SetWindowTextW(clockLabel,clock);
+    auto mode=std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");SetWindowTextW(modeLabel,mode.c_str());
     if(preparing.load()){std::lock_guard<std::mutex> lock(progressMutex);SetWindowTextW(status,progressText.c_str());}
     if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);SetWindowTextW(libraryStatus,progressText.c_str());}
     InvalidateRect(window,nullptr,FALSE);
@@ -251,7 +263,7 @@ void updateStatus() {
         mixer->playing=false; error(L"Se interrumpio la salida de audio. Pulsa Detener y Actualizar audio para reconectar.");
     }
     const auto seconds=mixer->position.load()/dubwin::rate;
-    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.3 — instrumentos + preparacion",
+    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.4 — instrumentos + preparacion",
         mixer->playing.load()?L"REPRODUCIENDO":L"PAUSA / DETENIDO",
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
     if(!preparing.load())SetWindowTextW(status,buffer);
@@ -381,30 +393,7 @@ void pollPreparation(){
     }
     runNext();
 }
-LRESULT CALLBACK libraryProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
-    if(msg==WM_CLOSE){ShowWindow(h,SW_HIDE);return 0;}
-    if(msg==WM_SIZE){int w=LOWORD(lp),height=HIWORD(lp);MoveWindow(songList,10,50,w-20,std::max(80,height-110),TRUE);MoveWindow(libraryStatus,10,height-52,w-20,45,TRUE);return 0;}
-    if(msg==WM_COMMAND){int id=LOWORD(wp);int selected=int(SendMessageW(songList,LB_GETCURSEL,0,0));
-        if(id==idSong)startPreparation();
-        if(id==idLoadReady || (id==900 && HIWORD(wp)==LBN_DBLCLK))requestLoad();
-        if(id==idQueuePause){queuePaused=!queuePaused;SetWindowTextW(GetDlgItem(h,idQueuePause),queuePaused?L"Continuar cola":L"Pausar cola");}
-        if(id==idRemoveSong && selected>=0 && size_t(selected)<songs.size()){
-            if(preparing){error(L"Espera o cancela el analisis antes de quitar entradas.");return 0;}songs.erase(songs.begin()+selected);saveLibrary();refreshLibrary();}
-        if(id==idRetrySong && selected>=0 && size_t(selected)<songs.size() && selected!=activeJob){songs[selected].state=L"En cola";refreshLibrary();runNext();}
-        return 0;
-    }
-    return DefWindowProcW(h,msg,wp,lp);
-}
-void showLibrary(){
-    if(!libraryWindow){WNDCLASSW c{};c.hInstance=GetModuleHandleW(nullptr);c.lpfnWndProc=libraryProc;c.lpszClassName=L"DubLibrary";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);RegisterClassW(&c);
-        libraryWindow=CreateWindowW(c.lpszClassName,L"Lista de canciones — doble clic para cargar",WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,CW_USEDEFAULT,780,430,window,nullptr,c.hInstance,nullptr);
-        auto child=[&](const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int height,int id){auto h=CreateWindowW(cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,height,libraryWindow,reinterpret_cast<HMENU>(INT_PTR(id)),c.hInstance,nullptr);SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return h;};
-        child(L"BUTTON",L"Agregar",0,10,10,80,28,idSong);child(L"BUTTON",L"Cargar seleccionada",0,96,10,145,28,idLoadReady);
-        child(L"BUTTON",L"Quitar",0,247,10,70,28,idRemoveSong);child(L"BUTTON",L"Reintentar",0,323,10,90,28,idRetrySong);child(L"BUTTON",L"Pausar cola",0,419,10,120,28,idQueuePause);
-        songList=child(L"LISTBOX",L"",LBS_NOTIFY|WS_VSCROLL|WS_HSCROLL|WS_BORDER,10,50,740,270,900);SendMessageW(songList,LB_SETHORIZONTALEXTENT,1600,0);
-        libraryStatus=child(L"STATIC",L"",0,10,330,740,50,901);refreshLibrary();}
-    ShowWindow(libraryWindow,SW_SHOW);SetForegroundWindow(libraryWindow);
-}
+void showLibrary(){SetFocus(songList);}
 void buildMenus(){
     auto bar=CreateMenu(),file=CreatePopupMenu(),prefs=CreatePopupMenu(),transport=CreatePopupMenu(),help=CreatePopupMenu();
     AppendMenuW(file,MF_STRING,idSong,L"Agregar canciones a la cola...");AppendMenuW(file,MF_STRING,idLibrary,L"Lista de canciones...");AppendMenuW(file,MF_STRING,idDataFolder,L"Carpeta de datos...");AppendMenuW(file,MF_STRING,idExit,L"Salir");
@@ -417,69 +406,104 @@ void buildMenus(){
     AppendMenuW(help,MF_STRING,idAbout,L"Uso y limitaciones");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(file),L"Archivo");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(prefs),L"Preferencias");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(transport),L"Transporte");AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(help),L"Ayuda");
     auto old=GetMenu(window);SetMenu(window,bar);if(old)DestroyMenu(old);DrawMenuBar(window);
 }
-void buildUI() {
-    font=CreateFontW(-12,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"DUBSTEMMIX",0,12,20,130,26);
-    control(L"STATIC",L"WIN / ALPHA 0.3",0,12,48,128,20);
-    control(L"BUTTON",L"ABRIR CANCION",WS_TABSTOP,10,88,128,34,idSong);
-    control(L"BUTTON",L"Cancelar proceso",WS_TABSTOP,10,130,128,28,idCancel);
-    control(L"STATIC",L"SALIDA DE AUDIO",0,12,180,120,20);
-    deviceList=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,10,204,128,240,idDevices);
-    control(L"BUTTON",L"Actualizar audio",WS_TABSTOP,10,240,128,28,idAudio);
-    control(L"BUTTON",L"Reconectar MIDI",WS_TABSTOP,10,286,128,28,idMidi);
-    midiLabel=control(L"STATIC",L"",0,12,324,122,70);
-    control(L"BUTTON",L"Carpeta de datos",WS_TABSTOP,10,382,128,28,idDataFolder);
-    control(L"BUTTON",L"LISTA CANCIONES",WS_TABSTOP,10,420,128,30,idLibrary);
-    control(L"STATIC",L"STEMS + INSTRUMENTOS\n\n1-4: stems\n5: Siren\n6: Syndrum\n7-8: efectos\n\nPerillas: arrastra arriba / abajo.\n\nCargar: stems existentes.",0,12,465,122,210);
-    control(L"BUTTON",L"PLAY",WS_TABSTOP,156,15,70,34,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,234,15,70,34,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,312,15,90,34,idStop);
-    songLabel=control(L"STATIC",L"NUEVA VERSION",SS_ENDELLIPSIS,420,22,380,24);
-    control(L"BUTTON",L"PANIC",WS_TABSTOP,970,15,90,34,idPanic);
+void relayout(){
+    RECT r;GetClientRect(window,&r);if(!r.right||!r.bottom)return;
+    layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;
+    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,sy(size)),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");};
+    auto old=font,oldHeading=headingFont,oldSmall=smallFont;font=make(13,FW_SEMIBOLD);headingFont=make(20,FW_HEAVY);smallFont=make(11,FW_NORMAL);
+    SendMessageW(window,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);
+    auto batch=BeginDeferWindowPos(int(placements.size()));
+    for(auto& c:placements){batch=DeferWindowPos(batch,c.h,nullptr,sx(c.x),sy(c.y),sx(c.w),sy(c.height),SWP_NOZORDER|SWP_NOACTIVATE);SendMessageW(c.h,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);}
+    if(batch)EndDeferWindowPos(batch);
+    SendMessageW(songLabel,WM_SETFONT,reinterpret_cast<WPARAM>(headingFont),FALSE);
+    SendMessageW(status,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);SendMessageW(libraryStatus,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
+    SendMessageW(songList,LB_SETITEMHEIGHT,0,sy(55));
+    if(old)DeleteObject(old);if(oldHeading)DeleteObject(oldHeading);if(oldSmall)DeleteObject(oldSmall);
+    RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
+}
+void buildUI(){
+    font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+    control(L"STATIC",L"CONSOLA DUB / WINDOWS 0.4",0,16,54,200,18);
+    control(L"BUTTON",L"+  AGREGAR CANCIONES",WS_TABSTOP,16,94,194,36,idSong);
+    control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
+    modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
+    control(L"STATIC",L"BIBLIOTECA",0,16,216,194,20);
+    songList=control(L"LISTBOX",L"",LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_VSCROLL|WS_TABSTOP,12,245,202,270,900);
+    control(L"BUTTON",L"CARGAR SELECCIONADA",WS_TABSTOP,16,528,194,34,idLoadReady);
+    control(L"BUTTON",L"Reintentar",WS_TABSTOP,16,570,94,28,idRetrySong);control(L"BUTTON",L"Quitar",WS_TABSTOP,116,570,94,28,idRemoveSong);
+    libraryStatus=control(L"STATIC",L"Agrega canciones para preparar tus stems.",0,16,610,194,44,901);
+    control(L"STATIC",L"SALIDA DE AUDIO",0,16,670,194,18);
+    deviceList=control(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,16,694,194,220,idDevices);
+    midiLabel=control(L"STATIC",L"",0,16,735,194,42);
+    control(L"BUTTON",L"PLAY",WS_TABSTOP,240,16,66,36,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,312,16,66,36,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,384,16,86,36,idStop);
+    songLabel=control(L"STATIC",L"TU SESION DUB",SS_ENDELLIPSIS,488,12,520,28);
+    clockLabel=control(L"STATIC",L"00:00 / 00:00",0,488,42,390,18);
+    control(L"BUTTON",L"PANIC",WS_TABSTOP,1150,16,106,36,idPanic);
     const wchar_t* effects[]={L"TIEMPO",L"FEEDBACK",L"DECAY",L"DAMPING",L"RATE",L"DEPTH"};
-    for(int e=0;e<6;++e){int x=160+(e/2)*300+(e%2)*105;fxDials[e]=dial(x,118,56,60,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-8,181,75,18);}
-    const wchar_t* labels[]={L"1  VOZ",L"2  BATERIA",L"3  BAJO",L"4  OTROS",L"5  SIREN",L"6  SYNDRUM"};
-    for(int t=0;t<6;++t){int x=150+t*100;
-        control(L"STATIC",labels[t],SS_CENTER,x+2,218,92,20);
-        names[t]=control(L"STATIC",L"Sin pista",SS_ENDELLIPSIS|SS_CENTER,x+3,241,90,20);
-        for(int b=0;b<3;++b){sends[t][b]=dial(x+20,265+b*73,58,57,idSend+t*3+b,0);sendLabels[t][b]=control(L"STATIC",L"",SS_CENTER,x+3,322+b*73,90,16);}
-        mutes[t]=control(L"BUTTON",L"MUTE",WS_TABSTOP,x+6,493,84,26,idMute+t);
-        solos[t]=control(L"BUTTON",L"SOLO",WS_TABSTOP,x+6,524,84,26,idSolo+t);
-        levels[t]=dial(x+27,557,42,92,idLevel+t,0.7f,true);
-        control(L"BUTTON",L"Cargar",WS_TABSTOP,x+5,657,42,24,idLoad+t);
-        clearButtons[t]=control(L"BUTTON",L"Vaciar",WS_TABSTOP,x+50,657,42,24,idClear+t);
-        syncInstrumentUI(t);
+    for(int e=0;e<6;++e){int x=240+(e/2)*340+202+(e%2)*58;fxDials[e]=dial(x,122,46,52,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-5,176,56,15);}
+    const wchar_t* labels[]={L"VOZ",L"BATERIA",L"BAJO",L"OTROS",L"SIREN",L"SYNDRUM"};
+    for(int t=0;t<6;++t){int x=240+t*113;
+        for(int b=0;b<3;++b){sends[t][b]=dial(x+24,216+b*65,64,58,idSend+t*3+b,0);sendLabels[t][b]=control(L"STATIC",L"",SS_CENTER,x+8,273+b*65,96,15);}
+        control(L"STATIC",labels[t],SS_CENTER,x+5,422,102,22,920+t);
+        mutes[t]=control(L"BUTTON",L"MUTE",WS_TABSTOP,x+8,452,96,28,idMute+t);solos[t]=control(L"BUTTON",L"SOLO",WS_TABSTOP,x+8,486,96,28,idSolo+t);
+        levels[t]=dial(x+23,528,66,182,idLevel+t,0.7f,true);
+        names[t]=control(L"STATIC",L"Sin archivo",SS_ENDELLIPSIS|SS_CENTER,x+6,716,100,18);
+        control(L"BUTTON",L"Cargar",WS_TABSTOP,x+6,740,49,26,idLoad+t);clearButtons[t]=control(L"BUTTON",L"Vaciar",WS_TABSTOP,x+59,740,49,26,idClear+t);syncInstrumentUI(t);
     }
-    control(L"STATIC",L"7  DELAY",SS_CENTER,754,218,90,20);control(L"STATIC",L"8  SPACE",SS_CENTER,854,218,90,20);
+    control(L"STATIC",L"DELAY",SS_CENTER,922,422,100,22,926);control(L"STATIC",L"SPACE",SS_CENTER,1035,422,100,22,927);
     const wchar_t* fxNames[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP",L"PLATE",L"PHASER"};
-    const int fxX[]={756,756,856,856,756,856},fxY[]={385,420,385,420,285,285};
-    for(int i=0;i<6;++i)fxButtons[i]=control(L"BUTTON",fxNames[i],WS_TABSTOP,fxX[i],fxY[i],84,28,idFX+i);
-    control(L"STATIC",L"RETORNOS",SS_CENTER,758,340,182,20);
-    returns[0]=dial(777,470,42,175,idReturn,0.5f,true);returns[1]=dial(877,470,42,175,idReturn+1,0.5f,true);
-    control(L"STATIC",L"MASTER",SS_CENTER,964,218,96,20);masterSlider=dial(990,270,42,225,idMaster,0.5f,true);
-    control(L"STATIC",L"PHS RETURN",SS_CENTER,959,530,106,20);returns[2]=dial(982,559,58,62,idReturn+2,0.5f);
-    status=control(L"STATIC",L"",0,12,706,1050,28);
-    SendMessageW(deviceList,CB_SETDROPPEDWIDTH,450,0);
-    enumerateAudio();connectMidi();
+    const int fxX[]={926,926,1039,1039,926,1039},fxY[]={452,486,452,486,242,242};
+    for(int i=0;i<6;++i)fxButtons[i]=control(L"BUTTON",fxNames[i],WS_TABSTOP,fxX[i],fxY[i],96,28,idFX+i);
+    control(L"STATIC",L"REVERB",SS_CENTER,926,218,96,18);control(L"STATIC",L"MODULACION",SS_CENTER,1039,218,96,18);
+    control(L"STATIC",L"PHASER RETURN",SS_CENTER,926,308,209,18);returns[2]=dial(997,337,64,64,idReturn+2,0.5f);
+    returns[0]=dial(940,528,66,182,idReturn,0.5f,true);returns[1]=dial(1053,528,66,182,idReturn+1,0.5f,true);
+    control(L"STATIC",L"DLY RETURN",SS_CENTER,922,724,104,18);control(L"STATIC",L"REV RETURN",SS_CENTER,1035,724,104,18);
+    control(L"STATIC",L"MASTER",SS_CENTER,1148,250,106,24,928);control(L"STATIC",L"SALIDA",SS_CENTER,1148,222,106,18);
+    control(L"STATIC",L"LIMITER ACTIVO",SS_CENTER,1148,454,106,18);
+    masterSlider=dial(1159,528,66,182,idMaster,0.5f,true);
+    status=control(L"STATIC",L"",SS_ENDELLIPSIS,240,782,1014,18);
+    SendMessageW(deviceList,CB_SETDROPPEDWIDTH,430,0);refreshLibrary();enumerateAudio();connectMidi();
     for(int e=0;e<6;++e)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(fxDials[e]));
     for(int t=4;t<6;++t)for(int b=0;b<2;++b)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(sends[t][b]));
-    SetTimer(window,1,150,nullptr);
+    uiReady=true;relayout();SetTimer(window,1,100,nullptr);
+}
+void paintConsole(HDC dc){
+    RECT r;GetClientRect(window,&r);FillRect(dc,&r,theme::bg());
+    auto rect=[](int x,int y,int w,int h){return RECT{sx(x),sy(y),sx(x+w),sy(y+h)};};
+    auto label=[&](const wchar_t* text,RECT r,COLORREF color,HFONT f){auto old=SelectObject(dc,f);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,color);DrawTextW(dc,text,-1,&r,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS);SelectObject(dc,old);};
+    label(L"DUB",rect(16,16,52,28),theme::gold,headingFont);label(L"STEM",rect(65,16,70,28),theme::green,headingFont);label(L"MIX",rect(133,16,65,28),theme::red,headingFont);
+    auto pen=CreatePen(PS_SOLID,1,RGB(47,42,35));auto old=SelectObject(dc,pen);MoveToEx(dc,sx(226),0,nullptr);LineTo(dc,sx(226),r.bottom);SelectObject(dc,old);DeleteObject(pen);
+    for(int i=0;i<9;++i){auto box=rect(240+i*113,208,108,565);theme::card(dc,box,theme::panel,i==6?RGB(100,79,34):(i==7?RGB(67,80,46):RGB(48,42,35)));}
+    const wchar_t* titles[]={L"DELAY",L"REVERB",L"PHASER"};const wchar_t* subs[]={L"Dub Delay",L"Plate / Spring",L"Phaser / Flanger"};COLORREF colors[]={theme::gold,theme::green,theme::red};
+    for(int i=0;i<3;++i){int x=240+i*340;theme::card(dc,rect(x,118,332,80),theme::panel,colors[i]);label(titles[i],rect(x+16,129,180,24),colors[i],font);label(subs[i],rect(x+16,157,180,23),theme::muted,smallFont);}
+    auto wave=rect(240,68,1012,40);theme::card(dc,wave,theme::panel,RGB(48,42,35));
+    const std::vector<float>* samples=nullptr;for(auto& strip:mixer->strip)if(!strip.samples.empty()){samples=&strip.samples;break;}
+    if(samples){size_t frames=samples->size()/2;auto cursor=mixer->position.load();
+        for(int x=0;x<500;++x){size_t i=size_t(x)*frames/500;float peak=0;for(size_t j=0;j<64 && i+j<frames;++j)peak=std::max(peak,std::abs((*samples)[(i+j)*2]));int a=std::max(1,int(std::min(peak,1.0f)*15));
+            pen=CreatePen(PS_SOLID,1,i<cursor?theme::text:theme::muted);old=SelectObject(dc,pen);MoveToEx(dc,sx(246+x*2),sy(88-a),nullptr);LineTo(dc,sx(246+x*2),sy(88+a));SelectObject(dc,old);DeleteObject(pen);}
+        if(frames){int x=246+int(std::min(1.0,double(cursor)/frames)*1000);pen=CreatePen(PS_SOLID,2,theme::gold);old=SelectObject(dc,pen);MoveToEx(dc,sx(x),sy(70),nullptr);LineTo(dc,sx(x),sy(106));SelectObject(dc,old);DeleteObject(pen);}
+    }else label(L"Carga una cancion de la biblioteca para empezar",rect(258,72,950,30),theme::muted,smallFont);
+    float peak=std::min(1.0f,mixer->peak.load());for(int i=0;i<24;++i){auto bar=rect(1232,700-i*7,7,4);auto b=CreateSolidBrush(i<peak*24?(i>20?theme::red:(i>16?theme::gold:theme::green)):RGB(48,43,35));FillRect(dc,&bar,b);DeleteObject(b);}
+    if(songs.empty())label(L"Tu lista esta vacia",rect(24,260,180,25),theme::muted,smallFont);
+}
+void drawSong(DRAWITEMSTRUCT* item){if(item->itemID==UINT(-1) || item->itemID>=songs.size())return;
+    bool selected=(item->itemState&ODS_SELECTED)!=0;auto r=item->rcItem;theme::card(item->hDC,r,selected?theme::text:theme::background,theme::background);
+    auto& song=songs[item->itemID];auto name=song.source.stem().wstring();auto old=SelectObject(item->hDC,font);SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,selected?theme::background:theme::text);
+    r.left+=sx(10);r.right-=sx(8);r.top+=sy(5);r.bottom=r.top+sy(24);DrawTextW(item->hDC,name.c_str(),-1,&r,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS);
+    SelectObject(item->hDC,smallFont);SetTextColor(item->hDC,selected?theme::background:(song.state==L"Lista"?theme::green:theme::gold));r.top+=sy(24);r.bottom+=sy(20);auto detail=song.state+(song.fast?L" / Rapido":L" / Calidad");DrawTextW(item->hDC,detail.c_str(),-1,&r,DT_SINGLELINE|DT_END_ELLIPSIS);SelectObject(item->hDC,old);
 }
 LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     switch(message){
-    case WM_CREATE:{window=h;loadLibrary();adapters=dubwin::gpuAdapters();buildMenus();RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1080;layoutY=float(r.bottom)/740;buildUI();return 0;}
+    case WM_CREATE:{window=h;loadLibrary();adapters=dubwin::gpuAdapters();buildMenus();RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;buildUI();return 0;}
     case WM_ERASEBKGND:return 1;
-    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);FillRect(dc,&r,theme::bg());
-        for(int i=0;i<9;++i){RECT strip{150+i*100,210,246+i*100,692};if(i==8)strip.right=1068;strip={sx(strip.left),sy(strip.top),sx(strip.right),sy(strip.bottom)};FillRect(dc,&strip,theme::surface());}
-        RECT wave{sx(150),sy(62),sx(1068),sy(107)};FillRect(dc,&wave,theme::surface());
-        const std::vector<float>* samples=nullptr;for(auto& strip:mixer->strip)if(!strip.samples.empty()){samples=&strip.samples;break;}
-        if(samples){auto pen=CreatePen(PS_SOLID,1,theme::muted);auto old=SelectObject(dc,pen);size_t frames=samples->size()/2;
-            for(int x=0;x<300;++x){size_t i=static_cast<size_t>(x)*frames/300;float peak=0;for(size_t j=0;j<128 && i+j<frames;++j)peak=std::max(peak,std::abs((*samples)[(i+j)*2]));int a=static_cast<int>(std::min(peak,1.0f)*20);MoveToEx(dc,sx(155+x*3),sy(84-a),nullptr);LineTo(dc,sx(155+x*3),sy(84+a+1));}SelectObject(dc,old);DeleteObject(pen);
-            if(frames){int x=155+static_cast<int>(std::min(1.0,double(mixer->position.load())/frames)*900);pen=CreatePen(PS_SOLID,2,theme::gold);old=SelectObject(dc,pen);MoveToEx(dc,sx(x),sy(64),nullptr);LineTo(dc,sx(x),sy(105));SelectObject(dc,old);DeleteObject(pen);}}
-        EndPaint(h,&ps);return 0;}
-    case WM_DRAWITEM:theme::button(reinterpret_cast<DRAWITEMSTRUCT*>(lp));return TRUE;
-    case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);SetTextColor(dc,theme::text);SetBkMode(dc,TRANSPARENT);SetBkColor(dc,theme::background);
+    case WM_SIZE:if(uiReady && wp!=SIZE_MINIMIZED)relayout();return 0;
+    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={1000,640};return 0;}
+    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);paintConsole(dc);EndPaint(h,&ps);return 0;}
+    case WM_MEASUREITEM:{auto item=reinterpret_cast<MEASUREITEMSTRUCT*>(lp);if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
+    case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item->CtlID==900)drawSong(item);else theme::button(item);return TRUE;}
+    case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:{auto dc=reinterpret_cast<HDC>(wp);int id=GetDlgCtrlID(reinterpret_cast<HWND>(lp));SetTextColor(dc,(id==924||id==925)?theme::red:(id==926?theme::gold:(id==927?theme::green:theme::text)));SetBkMode(dc,TRANSPARENT);
         RECT child;GetWindowRect(reinterpret_cast<HWND>(lp),&child);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&child),2);
-        if(child.left>=sx(150) && child.top>=sy(210) && child.top<sy(692))return reinterpret_cast<LRESULT>(theme::surface());
-        return reinterpret_cast<LRESULT>(theme::bg());}
+        bool panel=child.left>=sx(240)&&child.top>=sy(208)&&child.top<sy(773);SetBkColor(dc,panel?theme::panel:theme::background);return reinterpret_cast<LRESULT>(panel?theme::surface():theme::bg());}
     case midiMessage:handleMidi(static_cast<DWORD>(wp));return 0;
     case WM_TIMER:updateStatus();return 0;
     case WM_HSCROLL:{
@@ -496,14 +520,21 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
             const float real[]={0.02f*std::pow(175.0f,value),value*1.05f,value*0.98f,value*0.95f,0.05f*std::pow(200.0f,value),value};mixer->setEffect(e/2,params[e],real[e]);
         }return 0;}
     case WM_COMMAND:{int id=LOWORD(wp);
-        if(id==idCancel){queuePaused=true;if(libraryWindow)SetWindowTextW(GetDlgItem(libraryWindow,idQueuePause),L"Continuar cola");cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
+        int selected=int(SendMessageW(songList,LB_GETCURSEL,0,0));
+        if(id==idLoadReady || (id==900 && HIWORD(wp)==LBN_DBLCLK)){requestLoad();return 0;}
+        if(id==idQueuePause){queuePaused=!queuePaused;SetWindowTextW(GetDlgItem(window,idQueuePause),queuePaused?L"Seguir cola":L"Pausar cola");return 0;}
+        if(id==idRemoveSong && selected>=0 && size_t(selected)<songs.size()){
+            if(preparing){error(L"Espera o cancela el analisis antes de quitar entradas.");return 0;}songs.erase(songs.begin()+selected);saveLibrary();refreshLibrary();return 0;}
+        if(id==idRetrySong && selected>=0 && size_t(selected)<songs.size() && selected!=activeJob){songs[selected].state=L"En cola";refreshLibrary();runNext();return 0;}
+
+        if(id==idCancel){queuePaused=true;SetWindowTextW(GetDlgItem(window,idQueuePause),L"Seguir cola");cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
         if(id==idLibrary){showLibrary();return 0;}
         if(id==idExit){SendMessageW(window,WM_CLOSE,0,0);return 0;}
         if(id==idFast || id==idQuality || id==idCPU || (id>=idGPU && id<idGPU+int(adapters.size()))){
             if(id==idFast || id==idQuality)fastMode=id==idFast;else gpuDevice=id==idCPU?-1:adapters[id-idGPU].first;
             saveLibrary();buildMenus();return 0;}
         if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;SetWindowTextW(midiLabel,L"Pulsa un boton MIDI. SEND ALL no es una nota; usa SOLO 7 para Play.");return 0;}
-        if(id==idAbout){MessageBoxW(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Pausa. Bank Right: Reiniciar. SOLO canal 7: Play (por defecto). SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.3",MB_OK);return 0;}
+        if(id==idAbout){MessageBoxW(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Pausa. Bank Right: Reiniciar. SOLO canal 7: Play (por defecto). SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.4",MB_OK);return 0;}
         if(id==idDataFolder){if(preparing || loading){error(L"Espera a que termine el trabajo antes de cambiar la carpeta.");return 0;}BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
             auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");MessageBoxW(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
@@ -536,7 +567,10 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
     if(command && wcsstr(command,L"--check-separation"))return dubwin::separationSelfTest();
     try {
+        SetProcessDPIAware();
         CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+        Gdiplus::GdiplusStartupInput graphicsInput;ULONG_PTR graphicsToken=0;
+        if(Gdiplus::GdiplusStartup(&graphicsToken,&graphicsInput,nullptr)!=Gdiplus::Ok)return 1;
         theme::registerDial(instance);
         mixer=std::make_unique<dubwin::Mixer>();
         const ma_backend backend=ma_backend_wasapi;
@@ -545,12 +579,12 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         INITCOMMONCONTROLSEX cc{sizeof cc,ICC_BAR_CLASSES};InitCommonControlsEx(&cc);
         WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=windowProc;cls.lpszClassName=L"DubStemMixWinAlpha";
         cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=theme::bg();
-        RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1080,int(work.right-work.left)-30),std::min(740,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,FALSE);
-        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.3",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,
+        RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1280,int(work.right-work.left)-20),std::min(800,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,FALSE);
+        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.4",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
         if(!h){ma_context_uninit(&context);return 1;}
         ShowWindow(h,show);UpdateWindow(h);MSG msg{};
         while(GetMessageW(&msg,nullptr,0,0)>0){if(!(libraryWindow && IsDialogMessageW(libraryWindow,&msg)) && !IsDialogMessageW(h,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
-        ma_context_uninit(&context);contextReady=false;mixer.reset();return 0;
+        ma_context_uninit(&context);contextReady=false;mixer.reset();if(font)DeleteObject(font);if(headingFont)DeleteObject(headingFont);if(smallFont)DeleteObject(smallFont);Gdiplus::GdiplusShutdown(graphicsToken);return 0;
     }catch(const std::exception& e){auto text=wide(e.what());error(text.c_str());closeAudio();closeMidi();if(contextReady)ma_context_uninit(&context);return 1;}
 }

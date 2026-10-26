@@ -1,6 +1,10 @@
-DubStemMix para Windows x64 — alpha 0.3
+DubStemMix para Windows x64 — alpha 0.4
 
 NOVEDADES
+- Interfaz reorganizada como la consola macOS: biblioteca integrada a la izquierda,
+  forma de onda y transporte arriba, tarjetas de efectos y canales verticales.
+- Ventana redimensionable/maximizable. Perillas con arcos, botones activos coloreados
+  y medidor de pico real en el master. Archivo/Preferencias conserva los ajustes.
 - Consola oscura inspirada en macOS, perillas, faders verticales y vista de onda.
 - Abrir una cancion completa y separarla localmente en voz, bateria, bajo y otros.
 - Siren y Syndrum originales en canales 5 y 6 cuando no tienen un stem cargado.
@@ -19,7 +23,7 @@ LISTA Y PREPARACION EN SEGUNDO PLANO
    (htdemucs_ft, cuatro modelos, 663 MB). Rapido es el modo inicial de esta version.
 3. Archivo > Agregar canciones: elige uno o varios MP3/FLAC/WAV de hasta 10 minutos.
    Puedes seleccionar varios con Ctrl. Acepta la descarga inicial de los modelos.
-4. Abre LISTA CANCIONES. Se procesan de una en una: En cola, Analizando, Lista.
+4. Usa la BIBLIOTECA del lateral izquierdo. Se procesan de una en una: En cola, Analizando, Lista.
    Puedes seguir reproduciendo, mezclando, usar MIDI, Siren y efectos mientras tanto.
 5. Cuando la siguiente este Lista, pulsa PAUSA y Cargar seleccionada en la lista
    (tambien doble clic). Espera a que su titulo aparezca en la consola y pulsa PLAY.
