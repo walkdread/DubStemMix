@@ -52,7 +52,7 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
             pen=CreatePen(PS_SOLID,1,background);old=SelectObject(dc,pen);MoveToEx(dc,center-16,y,nullptr);LineTo(dc,center+16,y);SelectObject(dc,old);DeleteObject(pen);
         }else{
             Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            float side=float(std::min(width,height-17))-12, cx=width/2.0f,cy=(height-17)/2.0f;
+            float side=float(std::min(width,height-13))-4, cx=width/2.0f,cy=(height-13)/2.0f;
             Gdiplus::Pen track(color(RGB(48,43,36)),6),valuePen(color(accent),6);valuePen.SetStartCap(Gdiplus::LineCapRound);valuePen.SetEndCap(Gdiplus::LineCapRound);
             g.DrawArc(&track,cx-side/2,cy-side/2,side,side,135,270);
             if(d->value)g.DrawArc(&valuePen,cx-side/2,cy-side/2,side,side,135,270.0f*d->value/127);

@@ -409,7 +409,7 @@ void buildMenus(){
 void relayout(){
     RECT r;GetClientRect(window,&r);if(!r.right||!r.bottom)return;
     layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;
-    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,sy(size)),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,size==11?L"JetBrains Mono":L"Archivo");};
+    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,int(std::lround(size*std::min(layoutX,layoutY)))),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,size==11?L"JetBrains Mono":L"Archivo");};
     auto old=font,oldHeading=headingFont,oldSmall=smallFont;font=make(13,FW_SEMIBOLD);headingFont=make(20,FW_HEAVY);smallFont=make(11,FW_NORMAL);
     SendMessageW(window,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);
     auto batch=BeginDeferWindowPos(int(placements.size()));
@@ -423,13 +423,13 @@ void relayout(){
 }
 void buildUI(){
     font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"CONSOLA DUB / WINDOWS 0.4",0,16,54,200,18);
-    control(L"BUTTON",L"+  AGREGAR CANCIONES",WS_TABSTOP,16,94,194,36,idSong);
+    control(L"STATIC",L"CONSOLA DUB / 0.4",0,16,54,200,18);
+    control(L"BUTTON",L"+  AGREGAR CANCION",WS_TABSTOP,16,94,194,36,idSong);
     control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
     modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
     control(L"STATIC",L"BIBLIOTECA",0,16,216,194,20);
     songList=control(L"LISTBOX",L"",LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_VSCROLL|WS_TABSTOP,12,245,202,270,900);
-    control(L"BUTTON",L"CARGAR SELECCIONADA",WS_TABSTOP,16,528,194,34,idLoadReady);
+    control(L"BUTTON",L"CARGAR CANCION",WS_TABSTOP,16,528,194,34,idLoadReady);
     control(L"BUTTON",L"Reintentar",WS_TABSTOP,16,570,94,28,idRetrySong);control(L"BUTTON",L"Quitar",WS_TABSTOP,116,570,94,28,idRemoveSong);
     libraryStatus=control(L"STATIC",L"Agrega canciones para preparar tus stems.",0,16,610,194,44,901);
     control(L"STATIC",L"SALIDA DE AUDIO",0,16,670,194,18);
@@ -439,28 +439,28 @@ void buildUI(){
     songLabel=control(L"STATIC",L"TU SESION DUB",SS_ENDELLIPSIS,488,12,520,28);
     clockLabel=control(L"STATIC",L"00:00 / 00:00",0,488,42,390,18);
     control(L"BUTTON",L"PANIC",WS_TABSTOP,1150,16,106,36,idPanic);
-    const wchar_t* effects[]={L"TIEMPO",L"FEEDBACK",L"DECAY",L"DAMPING",L"RATE",L"DEPTH"};
+    const wchar_t* effects[]={L"TIEMPO",L"FEEDBK",L"DECAY",L"DAMP",L"RATE",L"DEPTH"};
     for(int e=0;e<6;++e){int x=240+(e/2)*340+202+(e%2)*58;fxDials[e]=dial(x,122,46,52,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-5,176,56,15);}
     const wchar_t* labels[]={L"VOZ",L"BATERIA",L"BAJO",L"OTROS",L"SIREN",L"SYNDRUM"};
     for(int t=0;t<6;++t){int x=240+t*113;
-        for(int b=0;b<3;++b){sends[t][b]=dial(x+24,216+b*65,64,58,idSend+t*3+b,0);sendLabels[t][b]=control(L"STATIC",L"",SS_CENTER,x+8,273+b*65,96,15);}
-        control(L"STATIC",labels[t],SS_CENTER,x+5,422,102,22,920+t);
-        mutes[t]=control(L"BUTTON",L"MUTE",WS_TABSTOP,x+8,452,96,28,idMute+t);solos[t]=control(L"BUTTON",L"SOLO",WS_TABSTOP,x+8,486,96,28,idSolo+t);
-        levels[t]=dial(x+23,528,66,182,idLevel+t,0.7f,true);
+        for(int b=0;b<3;++b){sends[t][b]=dial(x+19,216+b*78,74,62,idSend+t*3+b,0);sendLabels[t][b]=control(L"STATIC",L"",SS_CENTER,x+8,279+b*78,96,15);}
+        control(L"STATIC",labels[t],SS_CENTER,x+5,460,102,22,920+t);
+        mutes[t]=control(L"BUTTON",L"MUTE",WS_TABSTOP,x+8,490,96,28,idMute+t);solos[t]=control(L"BUTTON",L"SOLO",WS_TABSTOP,x+8,524,96,28,idSolo+t);
+        levels[t]=dial(x+23,566,66,144,idLevel+t,0.7f,true);
         names[t]=control(L"STATIC",L"Sin archivo",SS_ENDELLIPSIS|SS_CENTER,x+6,716,100,18);
         control(L"BUTTON",L"Cargar",WS_TABSTOP,x+6,740,49,26,idLoad+t);clearButtons[t]=control(L"BUTTON",L"Vaciar",WS_TABSTOP,x+59,740,49,26,idClear+t);syncInstrumentUI(t);
     }
-    control(L"STATIC",L"DELAY",SS_CENTER,922,422,100,22,926);control(L"STATIC",L"SPACE",SS_CENTER,1035,422,100,22,927);
+    control(L"STATIC",L"DELAY",SS_CENTER,922,460,100,22,926);control(L"STATIC",L"SPACE",SS_CENTER,1035,460,100,22,927);
     const wchar_t* fxNames[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP",L"PLATE",L"PHASER"};
-    const int fxX[]={926,926,1039,1039,926,1039},fxY[]={452,486,452,486,242,242};
+    const int fxX[]={926,926,1039,1039,926,1039},fxY[]={490,524,490,524,242,242};
     for(int i=0;i<6;++i)fxButtons[i]=control(L"BUTTON",fxNames[i],WS_TABSTOP,fxX[i],fxY[i],96,28,idFX+i);
-    control(L"STATIC",L"REVERB",SS_CENTER,926,218,96,18);control(L"STATIC",L"MODULACION",SS_CENTER,1039,218,96,18);
+    control(L"STATIC",L"REVERB",SS_CENTER,926,218,96,18);control(L"STATIC",L"MOD FX",SS_CENTER,1039,218,96,18);
     control(L"STATIC",L"PHASER RETURN",SS_CENTER,926,308,209,18);returns[2]=dial(997,337,64,64,idReturn+2,0.5f);
-    returns[0]=dial(940,528,66,182,idReturn,0.5f,true);returns[1]=dial(1053,528,66,182,idReturn+1,0.5f,true);
+    returns[0]=dial(940,566,66,144,idReturn,0.5f,true);returns[1]=dial(1053,566,66,144,idReturn+1,0.5f,true);
     control(L"STATIC",L"DLY RETURN",SS_CENTER,922,724,104,18);control(L"STATIC",L"REV RETURN",SS_CENTER,1035,724,104,18);
     control(L"STATIC",L"MASTER",SS_CENTER,1148,250,106,24,928);control(L"STATIC",L"SALIDA",SS_CENTER,1148,222,106,18);
-    control(L"STATIC",L"LIMITER ACTIVO",SS_CENTER,1148,454,106,18);
-    masterSlider=dial(1159,528,66,182,idMaster,0.5f,true);
+    control(L"STATIC",L"LIMITER ON",SS_CENTER,1148,490,106,18);
+    masterSlider=dial(1159,566,66,144,idMaster,0.5f,true);
     status=control(L"STATIC",L"",SS_ENDELLIPSIS,240,782,1014,18);
     SendMessageW(deviceList,CB_SETDROPPEDWIDTH,430,0);refreshLibrary();enumerateAudio();connectMidi();
     for(int e=0;e<6;++e)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(fxDials[e]));
@@ -497,7 +497,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_CREATE:{window=h;loadLibrary();adapters=dubwin::gpuAdapters();buildMenus();RECT r;GetClientRect(h,&r);layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;buildUI();return 0;}
     case WM_ERASEBKGND:return 1;
     case WM_SIZE:if(uiReady && wp!=SIZE_MINIMIZED)relayout();return 0;
-    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={1000,640};return 0;}
+    case WM_GETMINMAXINFO:{auto info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={1000,640};info->ptMaxTrackSize={8192,8192};return 0;}
     case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);paintConsole(dc);EndPaint(h,&ps);return 0;}
     case WM_MEASUREITEM:{auto item=reinterpret_cast<MEASUREITEMSTRUCT*>(lp);if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item->CtlID==900)drawSong(item);else theme::button(item);return TRUE;}
