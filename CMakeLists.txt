@@ -62,20 +62,26 @@ if(DUB_BUILD_WINDOWS_APP)
   )
   FetchContent_MakeAvailable(miniaudio)
   FetchContent_Declare(onnxruntime
-    URL https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-win-x64-1.19.2.zip
+    URL https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.19.2/microsoft.ml.onnxruntime.directml.1.19.2.nupkg
+    DOWNLOAD_NAME onnxruntime.zip
     SOURCE_SUBDIR no-subproject
   )
   FetchContent_MakeAvailable(onnxruntime)
+  FetchContent_Declare(directml
+    URL https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.1/microsoft.ai.directml.1.15.1.nupkg
+    DOWNLOAD_NAME directml.zip
+    SOURCE_SUBDIR no-subproject)
+  FetchContent_MakeAvailable(directml)
   add_library(onnxruntime_cpu SHARED IMPORTED)
   set_target_properties(onnxruntime_cpu PROPERTIES
-    IMPORTED_IMPLIB "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.lib"
-    IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
-    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/include"
+    IMPORTED_IMPLIB "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.lib"
+    IMPORTED_LOCATION "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.dll"
+    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/build/native/include"
   )
   add_executable(DubStemMix WIN32 Sources/WindowsApp/Main.cpp Sources/WindowsApp/Miniaudio.c Sources/WindowsApp/Separator.cpp)
   target_include_directories(DubStemMix PRIVATE Sources/WindowsApp "${miniaudio_SOURCE_DIR}")
   target_compile_definitions(DubStemMix PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-  target_link_libraries(DubStemMix PRIVATE DubDSP winmm comctl32 comdlg32 ole32 user32 gdi32 bcrypt winhttp shell32 uuid onnxruntime_cpu)
+  target_link_libraries(DubStemMix PRIVATE DubDSP winmm comctl32 comdlg32 ole32 user32 gdi32 bcrypt winhttp shell32 uuid dxgi onnxruntime_cpu)
   if(MSVC)
     target_compile_options(DubStemMix PRIVATE /utf-8)
   endif()
@@ -85,10 +91,14 @@ if(DUB_BUILD_WINDOWS_APP)
     target_link_options(DubStemMix PRIVATE -municode -static)
   endif()
   add_custom_command(TARGET DubStemMix POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:DubStemMix>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.dll" "$<TARGET_FILE_DIR:DubStemMix>"
   )
+  add_custom_command(TARGET DubStemMix POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${directml_SOURCE_DIR}/bin/x64-win/DirectML.dll" "$<TARGET_FILE_DIR:DubStemMix>")
+  install(FILES "${directml_SOURCE_DIR}/bin/x64-win/DirectML.dll" DESTINATION .)
+  install(FILES "${directml_SOURCE_DIR}/LICENSE.txt" DESTINATION licenses RENAME DIRECTML-LICENSE.txt)
   install(TARGETS DubStemMix RUNTIME DESTINATION .)
-  install(FILES "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll" DESTINATION .)
+  install(FILES "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.dll" DESTINATION .)
   install(FILES "${onnxruntime_SOURCE_DIR}/LICENSE" DESTINATION licenses RENAME ONNXRUNTIME-LICENSE.txt)
   set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ".")
   include(InstallRequiredSystemLibraries)

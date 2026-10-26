@@ -3,15 +3,21 @@
 #include <winhttp.h>
 #include <bcrypt.h>
 #include <shlobj.h>
+#include <dxgi.h>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <future>
+#include <chrono>
+#include "Mixer.h"
 #include "onnxruntime_cxx_api.h"
 #include "miniaudio.h"
 #include "Separator.h"
 #include "Overlap.h"
+
+extern "C" OrtStatus* ORT_API_CALL OrtSessionOptionsAppendExecutionProvider_DML(OrtSessionOptions*, int);
 
 namespace dubwin {
 namespace fs=std::filesystem;
@@ -40,17 +46,20 @@ std::string sha256(const fs::path& file,const std::atomic<bool>& cancel) {
     unsigned char digest[32];if(BCryptFinishHash(hash.handle,digest,32,0)<0)throw std::runtime_error("Error SHA256");
     std::ostringstream out;for(auto b:digest)out<<std::hex<<std::setw(2)<<std::setfill('0')<<int(b);return out.str();
 }
-fs::path modelPath(int row){return dataRoot()/L"Models"/revision/(std::wstring(L"htdemucs_ft_")+modelNames[row]+L"_fp16weights.onnx");}
-void ensureModel(int row,std::atomic<bool>& cancel,const Progress& progress) {
-    const auto final=modelPath(row);fs::create_directories(final.parent_path());
+constexpr const wchar_t* fastRevision=L"d54ed9eb60e258ea82131c6ee14578628816456a";
+constexpr const char* fastHash="d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a";
+fs::path modelPath(int row,bool fast=false){if(fast)return dataRoot()/L"Models"/fastRevision/L"htdemucs_fp16weights.onnx";return dataRoot()/L"Models"/revision/(std::wstring(L"htdemucs_ft_")+modelNames[row]+L"_fp16weights.onnx");}
+void ensureModel(int row,std::atomic<bool>& cancel,const Progress& progress,bool fast=false) {
+    const auto expectedHash=fast?fastHash:hashes[row];
+    const auto final=modelPath(row,fast);fs::create_directories(final.parent_path());
     progress(L"Verificando modelo "+std::wstring(modelNames[row])+L"...");
-    if(fs::exists(final) && fs::file_size(final)==modelBytes && sha256(final,cancel)==hashes[row])return;
+    if(fs::exists(final) && fs::file_size(final)==modelBytes && sha256(final,cancel)==expectedHash)return;
     const auto part=fs::path(final.wstring()+L".part");
     try {
         Internet session(WinHttpOpen(L"DubStemMix-Windows/0.2",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
         WinHttpSetTimeouts(session,10000,15000,30000,30000);
         Internet connection(WinHttpConnect(session,L"huggingface.co",INTERNET_DEFAULT_HTTPS_PORT,0));
-        const auto url=L"/StemSplitio/htdemucs-ft-onnx/resolve/"+std::wstring(revision)+L"/"+final.filename().wstring();
+        const auto url=std::wstring(fast?L"/StemSplitio/htdemucs-onnx/resolve/":L"/StemSplitio/htdemucs-ft-onnx/resolve/")+std::wstring(fast?fastRevision:revision)+L"/"+final.filename().wstring();
         Internet request(WinHttpOpenRequest(connection,L"GET",url.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE));
         if(!WinHttpSendRequest(request,WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0) || !WinHttpReceiveResponse(request,nullptr))
             throw std::runtime_error("Descarga fallida. Comprueba Internet e intenta de nuevo");
@@ -63,7 +72,7 @@ void ensureModel(int row,std::atomic<bool>& cancel,const Progress& progress) {
             if(!read)break;done+=read;if(done>modelBytes)throw std::runtime_error("Tamano de modelo inesperado");
             out.write(bytes.data(),read);if(!out)throw std::runtime_error("No hay espacio para guardar el modelo");
             if(done-lastReport>2*1024*1024){progress(L"Modelo "+std::to_wstring(row+1)+L"/4: "+std::to_wstring(done/(1024*1024))+L" / 158 MB");lastReport=done;}}
-        out.close();if(done!=modelBytes || sha256(part,cancel)!=hashes[row])throw std::runtime_error("El modelo esta incompleto o no paso la verificacion SHA256");
+        out.close();if(done!=modelBytes || sha256(part,cancel)!=expectedHash)throw std::runtime_error("El modelo esta incompleto o no paso la verificacion SHA256");
         if(!MoveFileExW(part.c_str(),final.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))throw std::runtime_error("No se pudo finalizar el modelo");
     }catch(...){std::error_code ec;fs::remove(part,ec);throw;}
 }
@@ -93,9 +102,16 @@ fs::path dataRoot(){auto root=configRoot();wchar_t custom[32768]{};GetPrivatePro
 void setDataRoot(const fs::path& folder){fs::create_directories(folder);auto root=configRoot();fs::create_directories(root);
     if(!WritePrivateProfileStringW(L"Storage",L"Folder",folder.c_str(),(root/L"settings.ini").c_str()))throw std::runtime_error("No se pudo guardar la carpeta de datos");}
 
-std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<bool>& cancel,const Progress& progress) {
+std::vector<std::pair<int,std::wstring>> gpuAdapters(){
+    std::vector<std::pair<int,std::wstring>> result;IDXGIFactory1* factory=nullptr;
+    if(FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),reinterpret_cast<void**>(&factory))))return result;
+    for(UINT i=0;;++i){IDXGIAdapter1* a=nullptr;if(factory->EnumAdapters1(i,&a)==DXGI_ERROR_NOT_FOUND)break;if(!a)break;
+        DXGI_ADAPTER_DESC1 d{};if(SUCCEEDED(a->GetDesc1(&d)) && !(d.Flags&DXGI_ADAPTER_FLAG_SOFTWARE))result.emplace_back(int(i),d.Description);a->Release();}
+    factory->Release();return result;
+}
+fs::path prepareSong(const fs::path& file,std::atomic<bool>& cancel,const Progress& progress,SeparationOptions settings) {
     cancelled(cancel);progress(L"Leyendo cancion...");auto fingerprint=sha256(file,cancel);
-    auto folder=dataRoot()/L"Stems"/(fingerprint+"-8616370e");
+    auto folder=dataRoot()/L"Stems"/(fingerprint+(settings.fast?"-d54ed9eb":"-8616370e"));
     bool cached=false;
     if(fs::exists(folder/L"complete.txt")){
         std::ifstream manifest(folder/L"complete.txt");cached=true;
@@ -103,7 +119,7 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
             if(expected.empty() || !fs::exists(wav) || sha256(wav,cancel)!=expected){cached=false;break;}}
     }
     if(!cached){
-        for(int row=0;row<4;++row){cancelled(cancel);ensureModel(row,cancel,progress);}
+        for(int row=0;row<(settings.fast?1:4);++row){cancelled(cancel);ensureModel(row,cancel,progress,settings.fast);}
         auto mix=decode(file,44100,cancel);const size_t total=mix.size()/2;
         auto staging=fs::path(folder.wstring()+L".part-"+std::to_wstring(GetCurrentProcessId()));
         fs::create_directories(staging);
@@ -113,14 +129,17 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
             const int64_t shape[]={1,2,static_cast<int64_t>(modelFrames)};
             std::vector<float> input(modelFrames*2,0);
             const size_t chunks=(total+stride-1)/stride;
-            for(int row=0;row<4;++row){
+            for(int row=0;row<(settings.fast?1:4);++row){
                 cancelled(cancel);progress(L"Preparando "+std::wstring(modelNames[row])+L"...");
                 Ort::SessionOptions options;options.SetIntraOpNumThreads(2);options.SetInterOpNumThreads(1);options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-                Ort::Session session(env,modelPath(row).c_str(),options);
-                Accumulator output(total);
+                options.AddConfigEntry("session.intra_op.allow_spinning","0");
+                if(settings.gpu>=0){options.DisableMemPattern();options.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
+                    Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(options,settings.gpu));}
+                Ort::Session session(env,modelPath(row,settings.fast).c_str(),options);
+                std::vector<Accumulator> output;for(int i=0;i<(settings.fast?4:1);++i)output.emplace_back(total);
                 for(size_t chunk=0;chunk<chunks;++chunk){
                     cancelled(cancel);const size_t start=chunk*stride,length=std::min(modelFrames,total-start);
-                    progress(std::wstring(modelNames[row])+L" — bloque "+std::to_wstring(chunk+1)+L"/"+std::to_wstring(chunks)+L" ("+std::to_wstring(row+1)+L"/4)");
+                    progress(std::wstring(settings.gpu>=0?L"GPU / ":L"CPU / ")+std::wstring(settings.fast?L"Rapido":modelNames[row])+L" — bloque "+std::to_wstring(chunk+1)+L"/"+std::to_wstring(chunks)+L" ("+std::to_wstring(row+1)+(settings.fast?L"/1)":L"/4)"));
                     std::fill(input.begin(),input.end(),0);
                     for(size_t i=0;i<length;++i){input[i]=mix[(start+i)*2];input[modelFrames+i]=mix[(start+i)*2+1];}
                     auto tensor=Ort::Value::CreateTensor<float>(memory,input.data(),input.size(),shape,3);
@@ -129,11 +148,15 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
                     auto info=result.at(0).GetTensorTypeAndShapeInfo();
                     if(info.GetShape()!=std::vector<int64_t>({1,4,2,static_cast<int64_t>(modelFrames)}) || info.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT)
                         throw std::runtime_error("Salida ONNX incompatible");
-                    const float* data=result[0].GetTensorData<float>()+row*2*modelFrames;
-                    for(size_t i=0;i<modelFrames*2;++i)if(!std::isfinite(data[i]))throw std::runtime_error("El modelo produjo audio invalido");
-                    output.add(data,data+modelFrames,start,length);
+                    for(int stem=0;stem<(settings.fast?4:1);++stem){
+                        const float* data=result[0].GetTensorData<float>()+(settings.fast?stem:row)*2*modelFrames;
+                        for(size_t i=0;i<modelFrames*2;++i)if(!std::isfinite(data[i]))throw std::runtime_error("El modelo produjo audio invalido");
+                        output[stem].add(data,data+modelFrames,start,length);
+                    }
                 }
-                cancelled(cancel);output.normalize();writeWave(staging/(std::wstring(modelNames[row])+L".wav"),output.samples);
+                for(int stem=0;stem<(settings.fast?4:1);++stem){cancelled(cancel);output[stem].normalize();
+                    writeWave(staging/(std::wstring(modelNames[settings.fast?stem:row])+L".wav"),output[stem].samples);}
+
             }
             std::ofstream manifest(staging/L"complete.txt");
             for(int row=0;row<4;++row)manifest<<sha256(staging/(std::wstring(modelNames[row])+L".wav"),cancel)<<"\n";
@@ -141,10 +164,18 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
             cancelled(cancel);if(fs::exists(folder))fs::remove_all(folder);fs::rename(staging,folder);
         }catch(...){std::error_code ec;fs::remove_all(staging,ec);throw;}
     }
-    progress(cached?L"Cargando stems ya preparados...":L"Cargando los cuatro stems...");
+    return folder;
+}
+std::array<std::vector<float>,4> loadPrepared(const fs::path& folder,std::atomic<bool>& cancel){
+    std::ifstream manifest(folder/L"complete.txt");
+    for(int row=0;row<4;++row){std::string hash;manifest>>hash;if(hash.empty() || sha256(folder/(std::wstring(modelNames[row])+L".wav"),cancel)!=hash)throw std::runtime_error("Stems incompletos. Reintenta el analisis.");}
     std::array<std::vector<float>,4> result;const int order[]={3,0,1,2};
     for(int t=0;t<4;++t)result[t]=decode(folder/(std::wstring(modelNames[order[t]])+L".wav"),48000,cancel);
+    for(auto& stem:result)if(stem.size()!=result[0].size())throw std::runtime_error("Stems desalineados");
     return result;
+}
+std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<bool>& cancel,const Progress& progress){
+    auto folder=prepareSong(file,cancel,progress,{false,-1});return loadPrepared(folder,cancel);
 }
 }
 
@@ -160,7 +191,17 @@ int separationSelfTest() {
         size_t length=result[0].size();if(length<95000 || length>97000)throw std::runtime_error("Resample length failed");
         double energy=0;for(const auto& stem:result){if(stem.size()!=length)throw std::runtime_error("Stem alignment failed");for(float x:stem){if(!std::isfinite(x))throw std::runtime_error("Non-finite audio");energy+=double(x)*x;}}
         if(energy<1e-6)throw std::runtime_error("Separation produced silence");
-        std::fprintf(stderr,"PASS: four real ONNX models, output shape, finite audio, matching stem lengths and resampling\n");return 0;
+        // Real inference runs beside a live mixer render loop, without sharing its buffers.
+        Mixer mixer;mixer.strip[0].samples.assign(48000*2*600,0.01f);mixer.playing=true;
+        auto future=std::async(std::launch::async,[&]{return prepareSong(file,cancel,[](const std::wstring& t){std::fwprintf(stderr,L"%ls\n",t.c_str());},{true,-1});});
+        float rendered[960];size_t blocks=0;
+        while(future.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready){mixer.render(rendered,480);++blocks;for(float v:rendered)if(!std::isfinite(v))throw std::runtime_error("Concurrent mixer nonfinite");}
+        auto fastFolder=future.get();if(blocks && mixer.position.load()!=blocks*480)throw std::runtime_error("Concurrent mixer interrupted");
+        auto fast=loadPrepared(fastFolder,cancel);double fastEnergy=0;
+        for(auto& stem:fast){if(stem.size()!=length)throw std::runtime_error("Fast model length failed");for(float v:stem){if(!std::isfinite(v))throw std::runtime_error("Fast nonfinite");fastEnergy+=double(v)*v;}}
+        if(fastEnergy<1e-6)throw std::runtime_error("Fast model silence");
+        if(prepareSong(file,cancel,[](const std::wstring&){},{true,-1})!=fastFolder)throw std::runtime_error("Cache failed");
+        std::fprintf(stderr,"PASS: fast model + cache; four real ONNX models, output shape, finite audio, matching stem lengths and resampling\n");return 0;
     }catch(const std::exception& e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}
 }
 }

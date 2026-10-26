@@ -15,7 +15,7 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.2*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.3*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   $rect = New-Object WindowCapture+RECT
   [void][WindowCapture]::GetWindowRect($app.MainWindowHandle, [ref]$rect)
   $bitmap = New-Object System.Drawing.Bitmap(($rect.Right-$rect.Left), ($rect.Bottom-$rect.Top))
