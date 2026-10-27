@@ -27,6 +27,10 @@ try {
   function Read-Probe([int]$id) { return [WindowCapture]::SendMessage($h,[uint32](0x8000+$id),[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() }
   for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
   if ((Read-Probe 24) -ne 1 -or (Read-Probe 22) -lt 380000) { throw 'Prepared song did not load' }
+  $beforeHits = Read-Probe 27
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]801,[IntPtr]::Zero)
+  if ((Read-Probe 27) -ne ($beforeHits+1) -or (Read-Probe 24) -ne 1) { throw 'Reload of active song unnecessarily read from disk' }
+
   for ($i=0; $i -lt 100 -and (((Read-Probe 28) -band 2) -eq 0 -or (Read-Probe 29) -lt 63000); $i++) { Start-Sleep -Milliseconds 100 }
   if (((Read-Probe 28) -band 2) -eq 0) { throw 'Next song was not prefetched to RAM' }
   if ([Math]::Abs((Read-Probe 29)-64000) -gt 20) { throw 'Total duration of the eight-song library is wrong' }
@@ -126,6 +130,16 @@ try {
     [void][WindowCapture]::GetWindowRect([WindowCapture]::GetDlgItem($app.MainWindowHandle,610),[ref]$bounds)
     if ($bounds.Bottom -gt $rect.Bottom -or $bounds.Right -gt $rect.Right) { throw 'Master outside window after resize' }
   }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]10,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 250
+  $mr = New-Object WindowCapture+RECT
+  [void][WindowCapture]::GetWindowRect($h,[ref]$mr)
+  $mb = New-Object System.Drawing.Bitmap(($mr.Right-$mr.Left),($mr.Bottom-$mr.Top))
+  $mg = [System.Drawing.Graphics]::FromImage($mb); $mdc = $mg.GetHdc()
+  try { [void][WindowCapture]::PrintWindow($h,$mdc,2) } finally { $mg.ReleaseHdc($mdc) }
+  $mb.Save(($Output -replace '.png$','-meters.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+  $mg.Dispose(); $mb.Dispose()
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
   [void][WindowCapture]::PostMessage($h,0x111,[IntPtr]860,[IntPtr]::Zero)
   Start-Sleep -Milliseconds 400
   $notice = [WindowCapture]::FindWindow('DubNotice',$null)

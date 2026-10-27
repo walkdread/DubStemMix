@@ -422,7 +422,7 @@ std::wstring durationText(double seconds,bool total=false){
 }
 void updateLibrarySummary(){
     double total=0;size_t unknown=0;for(auto& song:songs){if(song.duration>=0)total+=song.duration;else ++unknown;}
-    auto text=std::to_wstring(songs.size())+L" pistas / "+durationText(total,true)+(unknown?L" + ?":L"");setText(libraryTotal,text.c_str());
+    auto text=std::to_wstring(songs.size())+L" pistas / Total "+durationText(total,true)+(unknown?L" + ?":L"");setText(libraryTotal,text.c_str());
     auto name=(sessionPath.empty()?L"Sin guardar":sessionPath.stem().wstring())+(sessionDirty?L" *":L"");setText(sessionLabel,name.c_str());
 }
 void refreshLibrary(){
@@ -541,6 +541,10 @@ void requestLoadIndex(int n,bool next=false){
     if(loading){error(L"Ya hay una cancion cargandose.");return;}
     if(songs[n].state!=L"Lista" || songs[n].cache.empty()){error(L"Espera a que la cancion este Lista.");return;}
     if(mixer->playing && !next){error(L"Pulsa PAUSA antes de cargar otra cancion, o utiliza SIGUIENTE.");return;}
+    if(songs[n].cache==loadedCache && songs[n].source==loadedSource && songs[n].fast==loadedFast){
+        bool resume=next&&mixer->playing.load();stopAudio();mixer->reset();resetGestures();for(int t=0;t<6;++t){mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncButtons(t);}++warmHits;
+        auto r=waveRect();InvalidateRect(window,&r,FALSE);if(resume)SendMessageW(window,WM_COMMAND,idPlay,0);return;
+    }
     auto folder=songs[n].cache;loadCache=folder;loadSource=songs[n].source;loadFast=songs[n].fast;loadTitle=loadSource.stem().wstring();
     resumeAfterLoad=next && mixer->playing.load();loadError.clear();loading=true;loadDone=false;cancelLoad=false;
     SendMessageW(songList,LB_SETCURSEL,n,0);setText(libraryStatus,L"Cargando audio preparado...");
@@ -673,7 +677,7 @@ void buildUI(){
     songList=control(L"LISTBOX",L"",LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_TABSTOP,12,260,184,250,900);
     SetWindowSubclass(songList,listProc,1,0);
     sessionLabel=control(L"STATIC",L"Sin guardar",SS_ENDELLIPSIS,16,238,180,16,904);
-    libraryTotal=control(L"STATIC",L"0 pistas / 0:00:00",SS_ENDELLIPSIS,16,516,194,20,903);
+    libraryTotal=control(L"STATIC",L"0 pistas / Total 0:00:00",SS_ENDELLIPSIS,16,516,194,20,903);
     control(L"BUTTON",L"▲",WS_TABSTOP,200,260,16,22,idListUp);control(L"BUTTON",L"▼",WS_TABSTOP,200,488,16,22,idListDown);
     scrollRail=control(L"DubScroll",L"",0,200,284,16,200,idListRail);
     control(L"BUTTON",L"CARGAR CANCION",WS_TABSTOP,16,548,194,34,idLoadReady);
