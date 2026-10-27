@@ -18,6 +18,9 @@
 #include "Theme.h"
 #include "Dialogs.h"
 #include "PlaybackCache.h"
+#include "WarmCache.h"
+#include "Session.h"
+#include <set>
 #include "miniaudio.h"
 #include "Mixer.h"
 
@@ -42,10 +45,30 @@ std::thread preparation;
 std::atomic<bool> preparing{false},cancelPreparation{false},preparationDone{false};
 std::mutex progressMutex;
 std::wstring progressText,preparationError,preparationTitle;
-struct Song {std::filesystem::path source,cache;std::wstring state=L"En cola";bool fast=true;};
+struct Song {std::filesystem::path source,cache;std::wstring state=L"En cola";bool fast=true;double duration=-1;};
 std::vector<Song> songs;
 int activeJob=-1;
-HWND libraryWindow{},songList{},libraryStatus{};
+HWND libraryWindow{},songList{},libraryStatus{},libraryTotal{},sessionLabel{},scrollRail{};
+std::filesystem::path sessionPath,loadedCache,loadCache;
+bool sessionDirty=false;
+constexpr int idSessionSave=870,idSessionSaveAs=871,idSessionOpen=872,idSessionNew=873,idListUp=905,idListDown=906,idListRail=907;
+dubwin::WarmCache warmCache;
+std::thread warmer,metadataThread;
+std::atomic<bool> warming{false},warmDone{false},cancelWarm{false},metadataBusy{false},metadataDone{false};
+dubwin::WarmAudio warmResult;
+std::filesystem::path warmFolder,metadataSource,metadataCache;
+std::wstring warmError;
+std::set<std::filesystem::path> warmFailed;
+bool waitingWarm=false;
+double metadataDuration=-2;
+ULONGLONG selectionChanged=0;
+unsigned warmHits=0;
+void pumpBackground();
+void stopBackground();
+void pollWarm();
+void updateLibrarySummary();
+int meterSegments(float peak);
+RECT channelMeterRect(int channel);
 bool queuePaused=false,fastMode=true;
 int gpuDevice=-1,learnTransport=-1;
 int transportNotes[3]={25,20,26}; // Bank Left: Play; SOLO+MUTE 7: pause; Bank Right: restart.
@@ -274,7 +297,7 @@ void loadTrack(int track) {
     ma_decoder_uninit(&decoder);
     if(!ok || data.empty()){error(L"No se pudo cargar: archivo invalido o limite total de audio (1 GB) excedido. La pista anterior se conserva.");return;}
     mixer->strip[track].samples=std::move(data);mixer->strip[track].mute=false;mixer->strip[track].solo=false;
-    syncInstrumentUI(track);rebuildWaveform();loadedSource.clear();
+    syncInstrumentUI(track);rebuildWaveform();loadedSource.clear();loadedCache.clear();
     auto name=std::filesystem::path(path).filename().wstring(); setText(names[track],name.c_str());
     setText(status,L"Pista cargada. Carga las otras pistas y pulsa Reproducir.");InvalidateRect(window,nullptr,FALSE);
 }
@@ -294,12 +317,14 @@ void updateStatus() {
     static size_t lastPosition=~size_t(0);static float lastPeak=-1;
     auto position=mixer->position.load();auto peak=mixer->peak.load();
     if(position!=lastPosition){RECT wave{sx(240),sy(68),sx(1252),sy(108)};InvalidateRect(window,&wave,FALSE);lastPosition=position;}
+    static std::array<int,8> lastMeters{{-1,-1,-1,-1,-1,-1,-1,-1}};
+    for(int t=0;t<8;++t){int count=meterSegments(t<6?mixer->channelPeaks[t].load():mixer->returnPeaks[t-6].load());if(count!=lastMeters[t]){auto r=channelMeterRect(t);InvalidateRect(window,&r,FALSE);lastMeters[t]=count;}}
     if(peak!=lastPeak){RECT meter{sx(1230),sy(535),sx(1242),sy(706)};InvalidateRect(window,&meter,FALSE);lastPeak=peak;}
     if(deviceReady && mixer->playing.load() && !ma_device_is_started(&device)){
         mixer->playing=false; error(L"Se interrumpio la salida de audio. Pulsa Detener y Actualizar audio para reconectar.");
     }
     const auto seconds=mixer->position.load()/dubwin::rate;
-    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.5.0 — instrumentos + preparacion",
+    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.6.0 — instrumentos + preparacion",
         mixer->playing.load()?L"REPRODUCIENDO":L"PAUSA / DETENIDO",
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
     if(!preparing.load())setText(status,buffer);
@@ -372,8 +397,9 @@ void saveLibrary(){
         put(L"Preferences",L"Output",preferredOutput);put(L"MIDI",L"Layout",L"2");
         put(L"Preferences",L"Fast",fastMode?L"1":L"0");put(L"Preferences",L"GPU",std::to_wstring(gpuDevice));
         for(int i=0;i<3;++i)put(L"MIDI",std::to_wstring(i),std::to_wstring(transportNotes[i]));
+        put(L"Session",L"File",sessionPath.wstring());put(L"Session",L"Dirty",sessionDirty?L"1":L"0");
         put(L"Songs",L"Count",std::to_wstring(songs.size()));
-        for(size_t i=0;i<songs.size();++i){auto k=std::to_wstring(i);put(L"Paths",k,songs[i].source.wstring());put(L"Caches",k,songs[i].cache.wstring());put(L"Modes",k,songs[i].fast?L"1":L"0");}
+        for(size_t i=0;i<songs.size();++i){auto k=std::to_wstring(i);put(L"Paths",k,songs[i].source.wstring());put(L"Caches",k,songs[i].cache.wstring());put(L"Modes",k,songs[i].fast?L"1":L"0");put(L"Durations",k,std::to_wstring(songs[i].duration));}
     }catch(const std::exception& e){error(wide(e.what()).c_str());}
 }
 void loadLibrary(){
@@ -383,18 +409,107 @@ void loadLibrary(){
     for(int i=0;i<3;++i)transportNotes[i]=static_cast<int>(GetPrivateProfileIntW(L"MIDI",std::to_wstring(i).c_str(),transportNotes[i],f.c_str()));
     if(GetPrivateProfileIntW(L"MIDI",L"Layout",0,f.c_str())<2){transportNotes[0]=25;transportNotes[1]=20;transportNotes[2]=26;}
     auto get=[&](const wchar_t* section,const std::wstring& key){wchar_t v[32768]{};GetPrivateProfileStringW(section,key.c_str(),L"",v,32768,f.c_str());return std::wstring(v);};
-    preferredOutput=get(L"Preferences",L"Output");
+    preferredOutput=get(L"Preferences",L"Output");sessionPath=get(L"Session",L"File");sessionDirty=get(L"Session",L"Dirty")==L"1";
     int count=std::min(1000,int(GetPrivateProfileIntW(L"Songs",L"Count",0,f.c_str())));
     for(int i=0;i<count;++i){auto key=std::to_wstring(i);Song song;song.source=get(L"Paths",key);song.cache=get(L"Caches",key);song.fast=get(L"Modes",key)!=L"0";
+        try{auto value=get(L"Durations",key);if(!value.empty())song.duration=std::stod(value);if(!std::isfinite(song.duration)||song.duration<-2||song.duration>2678400)song.duration=-1;}catch(...){song.duration=-1;}
         if(song.source.empty())continue;
         song.state=std::filesystem::exists(song.cache/L"complete.txt")?L"Lista":L"Pendiente (reintentar)";songs.push_back(std::move(song));}
 }
+std::wstring durationText(double seconds,bool total=false){
+    if(seconds<0)return L"--:--";auto n=static_cast<unsigned long long>(std::llround(seconds));wchar_t text[64];
+    if(total||n>=3600)swprintf_s(text,L"%llu:%02llu:%02llu",n/3600,(n/60)%60,n%60);else swprintf_s(text,L"%02llu:%02llu",n/60,n%60);return text;
+}
+void updateLibrarySummary(){
+    double total=0;size_t unknown=0;for(auto& song:songs){if(song.duration>=0)total+=song.duration;else ++unknown;}
+    auto text=std::to_wstring(songs.size())+L" pistas / "+durationText(total,true)+(unknown?L" + ?":L"");setText(libraryTotal,text.c_str());
+    auto name=(sessionPath.empty()?L"Sin guardar":sessionPath.stem().wstring())+(sessionDirty?L" *":L"");setText(sessionLabel,name.c_str());
+}
 void refreshLibrary(){
-    if(!songList)return;auto selected=SendMessageW(songList,LB_GETCURSEL,0,0);auto top=SendMessageW(songList,LB_GETTOPINDEX,0,0);
+    updateLibrarySummary();if(!songList)return;auto selected=SendMessageW(songList,LB_GETCURSEL,0,0);auto top=SendMessageW(songList,LB_GETTOPINDEX,0,0);
     SendMessageW(songList,WM_SETREDRAW,FALSE,0);SendMessageW(songList,LB_RESETCONTENT,0,0);
     for(const auto& song:songs){auto label=L"["+song.state+L"]  "+song.source.filename().wstring()+(song.fast?L"  (Rapido)":L"  (Calidad)");SendMessageW(songList,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}
-    SendMessageW(songList,LB_SETCURSEL,selected,0);SendMessageW(songList,LB_SETTOPINDEX,top,0);SendMessageW(songList,WM_SETREDRAW,TRUE,0);InvalidateRect(songList,nullptr,TRUE);
+    SendMessageW(songList,LB_SETCURSEL,selected,0);SendMessageW(songList,LB_SETTOPINDEX,top,0);SendMessageW(songList,WM_SETREDRAW,TRUE,0);InvalidateRect(songList,nullptr,TRUE);if(scrollRail)InvalidateRect(scrollRail,nullptr,FALSE);
 }
+void pollWarm(){
+    if(warming && warmDone.load(std::memory_order_acquire)){
+        if(warmer.joinable())warmer.join();warming=false;
+        if(waitingWarm){waitingWarm=false;loadError=warmError;preparedStems=std::move(warmResult.stems);preparedWaveform=std::move(warmResult.wave);loadDone.store(true,std::memory_order_release);}
+        else if(warmError.empty())warmCache.put(std::move(warmResult));
+        else warmFailed.insert(warmFolder);
+        warmResult={};refreshLibrary();
+    }
+}
+void pumpBackground(){
+    if(metadataBusy && metadataDone.load(std::memory_order_acquire)){
+        if(metadataThread.joinable())metadataThread.join();metadataBusy=false;
+        for(auto& song:songs)if(song.source==metadataSource && song.cache==metadataCache)song.duration=metadataDuration;
+        refreshLibrary();
+    }
+    if(!metadataBusy){for(auto& song:songs)if(song.duration==-1){
+        metadataSource=song.source;metadataCache=song.cache;auto source=metadataSource,cache=metadataCache;
+        metadataBusy=true;metadataDone=false;
+        metadataThread=std::thread([source,cache]{SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
+            try{auto stem=cache/L"drums.wav";metadataDuration=dubwin::audioDuration(!cache.empty()&&std::filesystem::exists(stem)?stem:source);}catch(...){metadataDuration=-2;}
+            metadataDone.store(true,std::memory_order_release);});break;
+    }}
+    if(warming || loading || GetTickCount64()-selectionChanged<350)return;
+    int selected=int(SendMessageW(songList,LB_GETCURSEL,0,0)),target=-1;
+    if(selected>=0 && selected<int(songs.size()) && songs[selected].state==L"Lista" && songs[selected].cache!=loadedCache)target=selected;
+    if(target<0){int after=-1;for(size_t i=0;i<songs.size();++i)if(songs[i].source==loadedSource && songs[i].fast==loadedFast){after=int(i);break;}
+        for(int i=after+1;i<int(songs.size());++i)if(songs[i].state==L"Lista" && songs[i].cache!=loadedCache){target=i;break;}}
+    if(target<0)return;auto& song=songs[target];
+    if(song.cache.empty()||warmCache.contains(song.cache)||warmFailed.count(song.cache))return;
+    warmCache.reserve(size_t((song.duration>=0?std::min(600.0,std::ceil(song.duration)+1):600.0)*48000*8*4)+256*1024);
+    warmFolder=song.cache;warmError.clear();warmResult={};warmResult.key=warmFolder;warming=true;cancelWarm=false;warmDone=false;auto folder=warmFolder;
+    warmer=std::thread([folder]{SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
+        try{warmResult.stems=dubwin::loadPrepared(folder,cancelWarm,&warmResult.wave);}catch(const std::exception& e){warmError=wide(e.what());}
+        warmDone.store(true,std::memory_order_release);});refreshLibrary();
+}
+void stopBackground(){
+    cancelWarm=true;if(warmer.joinable())warmer.join();warming=false;warmDone=false;warmResult={};waitingWarm=false;
+    if(metadataThread.joinable())metadataThread.join();metadataBusy=false;metadataDone=false;
+}
+std::filesystem::path previewRoot(){return std::filesystem::temp_directory_path()/(L"DubStemMix-ui-"+std::to_wstring(GetCurrentProcessId()));}
+bool saveSessionDialog(bool saveAs){
+    auto path=sessionPath;
+    if(uiTestMode)path=previewRoot()/L"biblioteca.dubset";
+    else if(saveAs||path.empty()){
+        wchar_t file[32768]{};auto initial=path.empty()?std::wstring(L"Mi biblioteca.dubset"):path.wstring();wcsncpy_s(file,initial.c_str(),_TRUNCATE);
+        OPENFILENAMEW d{};d.lStructSize=sizeof d;d.hwndOwner=window;d.lpstrTitle=L"Guardar biblioteca";d.lpstrFilter=L"Biblioteca DubStemMix\0*.dubset\0\0";d.lpstrDefExt=L"dubset";d.lpstrFile=file;d.nMaxFile=32768;d.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+        if(!GetSaveFileNameW(&d))return false;path=file;
+    }
+    try{std::vector<dubwin::SessionEntry> entries;for(auto& song:songs)entries.push_back({song.source,song.cache,song.fast,song.duration});dubwin::writeSession(path,entries);
+        sessionPath=path;sessionDirty=false;saveLibrary();updateLibrarySummary();return true;
+    }catch(const std::exception& e){error(wide(e.what()).c_str());return false;}
+}
+bool confirmLibraryChange(){
+    if(preparing||loading){error(L"Espera o cancela la preparacion/carga antes de cambiar de biblioteca.");return false;}
+    if(!sessionDirty)return true;
+    int answer=theme::message(window,L"Hay cambios en esta biblioteca. ¿Quieres guardarlos antes de continuar?\n\nSi: guardar. No: continuar sin guardar. Cancelar: conservar la biblioteca abierta.",L"Cambiar biblioteca",MB_YESNOCANCEL);
+    if(answer==IDCANCEL)return false;return answer==IDYES?saveSessionDialog(false):true;
+}
+void clearLibraryPlayback(){
+    stopBackground();stopAudio();mixer->reset();resetGestures();warmCache.clear();warmFailed.clear();
+    for(int t=0;t<6;++t){std::vector<float>().swap(mixer->strip[t].samples);mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)setText(names[t],L"Sin archivo");}
+    loadedSource.clear();loadedCache.clear();waveform.clear();queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
+    setText(songLabel,L"TU SESION DUB");resetPickup();InvalidateRect(window,nullptr,FALSE);
+}
+void newSession(){
+    if(!confirmLibraryChange())return;clearLibraryPlayback();songs.clear();sessionPath.clear();sessionDirty=false;saveLibrary();refreshLibrary();setProgress(L"Nueva biblioteca. Agrega canciones o abre una guardada.");
+}
+void openSessionDialog(){
+    if(preparing||loading){error(L"Espera o cancela la preparacion/carga antes de abrir otra biblioteca.");return;}
+    std::filesystem::path path;
+    if(uiTestMode)path=previewRoot()/L"biblioteca.dubset";
+    else {wchar_t file[32768]{};OPENFILENAMEW d{};d.lStructSize=sizeof d;d.hwndOwner=window;d.lpstrTitle=L"Abrir biblioteca";d.lpstrFilter=L"Biblioteca DubStemMix\0*.dubset\0\0";d.lpstrFile=file;d.nMaxFile=32768;d.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;if(!GetOpenFileNameW(&d))return;path=file;}
+    try{auto entries=dubwin::readSession(path);std::vector<Song> restored;
+        for(auto& entry:entries){Song song;song.source=entry.source;song.cache=entry.cache;song.fast=entry.fast;song.duration=entry.duration;
+            song.state=!song.cache.empty()&&std::filesystem::exists(song.cache/L"complete.txt")?L"Lista":(std::filesystem::exists(song.source)?L"Pendiente (reintentar)":L"Archivo no encontrado");restored.push_back(std::move(song));}
+        if(!confirmLibraryChange())return;clearLibraryPlayback();songs=std::move(restored);sessionPath=path;sessionDirty=false;saveLibrary();refreshLibrary();setProgress(L"Biblioteca abierta. Selecciona y carga una cancion.");
+    }catch(const std::exception& e){error(wide(e.what()).c_str());}
+}
+
 void runNext(){
     if(preparing || queuePaused)return;
     for(size_t i=0;i<songs.size();++i)if(songs[i].state==L"En cola"){
@@ -419,16 +534,20 @@ void startPreparation(){
     std::filesystem::path first(files);const wchar_t* next=files+wcslen(files)+1;
     auto add=[&](const std::filesystem::path& path){if(songs.size()>=1000)return;for(const auto& item:songs)if(item.source==path && item.fast==fastMode)return;Song item;item.source=path;item.fast=fastMode;songs.push_back(std::move(item));};
     if(!*next)add(first);else for(;*next;next+=wcslen(next)+1)add(first/next);
-    saveLibrary();showLibrary();refreshLibrary();runNext();
+    sessionDirty=true;saveLibrary();showLibrary();refreshLibrary();runNext();
 }
 void requestLoadIndex(int n,bool next=false){
     if(n<0 || size_t(n)>=songs.size())return;
     if(loading){error(L"Ya hay una cancion cargandose.");return;}
     if(songs[n].state!=L"Lista" || songs[n].cache.empty()){error(L"Espera a que la cancion este Lista.");return;}
     if(mixer->playing && !next){error(L"Pulsa PAUSA antes de cargar otra cancion, o utiliza SIGUIENTE.");return;}
-    auto folder=songs[n].cache;loadSource=songs[n].source;loadFast=songs[n].fast;loadTitle=loadSource.stem().wstring();
+    auto folder=songs[n].cache;loadCache=folder;loadSource=songs[n].source;loadFast=songs[n].fast;loadTitle=loadSource.stem().wstring();
     resumeAfterLoad=next && mixer->playing.load();loadError.clear();loading=true;loadDone=false;cancelLoad=false;
     SendMessageW(songList,LB_SETCURSEL,n,0);setText(libraryStatus,L"Cargando audio preparado...");
+    dubwin::WarmAudio ready;if(warmCache.take(folder,ready)){
+        preparedStems=std::move(ready.stems);preparedWaveform=std::move(ready.wave);++warmHits;loadDone=true;pollPreparation();return;
+    }
+    if(warming && warmFolder==folder){waitingWarm=true;return;}
     loader=std::thread([folder]{try{preparedStems=dubwin::loadPrepared(folder,cancelLoad,&preparedWaveform);}catch(const std::exception& e){loadError=wide(e.what());}loadDone.store(true,std::memory_order_release);});
 }
 void requestLoad(){requestLoadIndex(int(SendMessageW(songList,LB_GETCURSEL,0,0)));}
@@ -440,34 +559,40 @@ void nextSong(){
     error(L"No hay otra cancion preparada despues de la actual. Agrega canciones o espera a que termine el analisis.");
 }
 void pollPreparation(){
+    pollWarm();
     if(loading && loadDone.load(std::memory_order_acquire)){
         if(loader.joinable())loader.join();loading=false;
         if(!loadError.empty()){preparedStems={};preparedWaveform.clear();recordStemError(L"Carga: "+loadTitle+L"\nError: "+loadError);error(loadError.c_str());}
         else {stopAudio();mixer->reset();resetGestures();
+            if(!loadedCache.empty()){dubwin::WarmAudio previous;previous.key=loadedCache;for(int t=0;t<4;++t)previous.stems[t]=std::move(mixer->strip[t].samples);previous.wave=std::move(waveform);warmCache.put(std::move(previous));}
             const wchar_t* titles[]={L"BATERIA",L"BAJO",L"OTROS",L"VOZ"};
             for(int t=0;t<6;++t){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();
                 mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)setText(names[t],titles[t]);}
-            loadedSource=loadSource;loadedFast=loadFast;waveform=std::move(preparedWaveform);
+            loadedSource=loadSource;loadedCache=loadCache;loadedFast=loadFast;
+            for(auto& song:songs)if(song.source==loadedSource && song.fast==loadedFast)song.duration=double(mixer->totalFrames())/dubwin::rate;
+            refreshLibrary();waveform=std::move(preparedWaveform);
             setText(songLabel,loadTitle.c_str());InvalidateRect(window,nullptr,FALSE);resetPickup();setProgress(L"Cancion cargada. Pulsa PLAY.");
             if(resumeAfterLoad)SendMessageW(window,WM_COMMAND,idPlay,0); }
     }
     if(preparing && preparationDone.load(std::memory_order_acquire)){
         if(preparation.joinable())preparation.join();preparing=false;
         auto& song=songs[activeJob];song.state=preparationError.empty()?L"Lista":(cancelPreparation?L"Cancelada":L"Error");
-        if(preparationError.empty())song.cache=jobCache;
+        if(preparationError.empty()){song.cache=jobCache;song.duration=-1;warmCache.erase(jobCache);warmFailed.erase(jobCache);sessionDirty=true;}
         else if(!cancelPreparation){
             SYSTEMTIME t{};GetLocalTime(&t);wchar_t stamp[64];swprintf_s(stamp,L"%04u-%02u-%02u %02u:%02u:%02u",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
-            recordStemError(std::wstring(L"DubStemMix 0.5.0 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
+            recordStemError(std::wstring(L"DubStemMix 0.6.0 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
             queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
         }
         setProgress(preparationError.empty()?L"Stems listos. Selecciona y carga desde la lista.":L"Analisis detenido. Abre Ayuda > Ultimo error de stems para ver el detalle.");
         activeJob=-1;saveLibrary();refreshLibrary();
     }
-    runNext();
+    runNext();pumpBackground();
 }
 void showLibrary(){SetFocus(songList);}
 void buildMenus(){
     auto bar=CreateMenu(),file=CreatePopupMenu(),prefs=CreatePopupMenu(),transport=CreatePopupMenu(),help=CreatePopupMenu();
+    AppendMenuW(file,MF_STRING,idSessionNew,L"Nueva biblioteca");AppendMenuW(file,MF_STRING,idSessionOpen,L"Abrir biblioteca...");
+    AppendMenuW(file,MF_STRING,idSessionSave,L"Guardar biblioteca");AppendMenuW(file,MF_STRING,idSessionSaveAs,L"Guardar biblioteca como...");AppendMenuW(file,MF_SEPARATOR,0,nullptr);
     AppendMenuW(file,MF_STRING,idSong,L"Agregar canciones a la cola...");AppendMenuW(file,MF_STRING,idLibrary,L"Lista de canciones...");AppendMenuW(file,MF_STRING,idDataFolder,L"Carpeta de datos...");AppendMenuW(file,MF_STRING,idExit,L"Salir");
     AppendMenuW(prefs,MF_STRING|(fastMode?MF_CHECKED:0),idFast,L"Stems: Rapido (un modelo)");AppendMenuW(prefs,MF_STRING|(!fastMode?MF_CHECKED:0),idQuality,L"Stems: Calidad (cuatro modelos)");
     AppendMenuW(prefs,MF_STRING|(gpuDevice<0?MF_CHECKED:0),idCPU,L"Analisis: CPU");
@@ -485,8 +610,8 @@ void buildMenus(){
 void relayout(){
     RECT r;GetClientRect(window,&r);if(!r.right||!r.bottom)return;
     layoutX=float(r.right)/1280;layoutY=float(r.bottom)/800;
-    auto make=[&](int size,int weight){return CreateFontW(-std::max(10,int(std::lround(size*std::min(layoutX,layoutY)))),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,size==11?L"JetBrains Mono":L"Archivo");};
-    auto old=font,oldHeading=headingFont,oldSmall=smallFont;font=make(13,FW_SEMIBOLD);headingFont=make(20,FW_HEAVY);smallFont=make(11,FW_NORMAL);
+    auto make=[&](int size,int weight){return CreateFontW(-std::max(9,int(std::lround(size*std::min(layoutX,layoutY)))),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,size==11?L"JetBrains Mono":L"Archivo");};
+    auto old=font,oldHeading=headingFont,oldSmall=smallFont;font=make(13,FW_SEMIBOLD);headingFont=make(20,FW_HEAVY);smallFont=make(10,FW_NORMAL);
     SendMessageW(window,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);
     auto batch=BeginDeferWindowPos(int(placements.size()));
     for(auto& c:placements){batch=DeferWindowPos(batch,c.h,nullptr,sx(c.x),sy(c.y),sx(c.w),sy(c.height),SWP_NOZORDER|SWP_NOACTIVATE);SendMessageW(c.h,WM_SETFONT,reinterpret_cast<WPARAM>(font),FALSE);}
@@ -494,21 +619,66 @@ void relayout(){
     SendMessageW(songLabel,WM_SETFONT,reinterpret_cast<WPARAM>(headingFont),FALSE);
     SendMessageW(status,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);SendMessageW(libraryStatus,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
     SendMessageW(audioLabel,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);SendMessageW(midiLabel,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
+    for(auto& row:sends)for(auto h:row)SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
+    for(auto& row:sendLabels)for(auto h:row)SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
+    for(int e=0;e<6;++e){SendMessageW(fxDials[e],WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);SendMessageW(GetDlgItem(window,940+e),WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);}
+    for(auto h:{libraryTotal,sessionLabel})SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(smallFont),FALSE);
     SendMessageW(songList,LB_SETITEMHEIGHT,0,sy(55));
     if(old)DeleteObject(old);if(oldHeading)DeleteObject(oldHeading);if(oldSmall)DeleteObject(oldSmall);
     RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
 }
+int visibleRows(){int height=int(SendMessageW(songList,LB_GETITEMHEIGHT,0,0));RECT r{};GetClientRect(songList,&r);return std::max(1,int(r.bottom)/std::max(1,height));}
+void scrollLibrary(int top){int maximum=std::max(0,int(songs.size())-visibleRows());SendMessageW(songList,LB_SETTOPINDEX,std::clamp(top,0,maximum),0);if(scrollRail)InvalidateRect(scrollRail,nullptr,FALSE);}
+void moveLibrarySelection(int delta){if(songs.empty())return;int current=int(SendMessageW(songList,LB_GETCURSEL,0,0));int next=current<0?0:std::clamp(current+delta,0,int(songs.size())-1);
+    SendMessageW(songList,LB_SETCURSEL,next,0);selectionChanged=GetTickCount64();SetFocus(songList);if(scrollRail)InvalidateRect(scrollRail,nullptr,FALSE);
+}
+LRESULT CALLBACK listProc(HWND h,UINT m,WPARAM w,LPARAM l,UINT_PTR id,DWORD_PTR){
+    if(m==WM_MOUSEWHEEL){int delta=GET_WHEEL_DELTA_WPARAM(w);scrollLibrary(int(SendMessageW(h,LB_GETTOPINDEX,0,0))-(delta>0?3:-3));return 0;}
+    auto result=DefSubclassProc(h,m,w,l);
+    if(m==WM_KEYDOWN||m==WM_LBUTTONUP||m==WM_VSCROLL){if(scrollRail)InvalidateRect(scrollRail,nullptr,FALSE);}
+    if(m==WM_NCDESTROY)RemoveWindowSubclass(h,listProc,id);return result;
+}
+LRESULT CALLBACK scrollProc(HWND h,UINT m,WPARAM w,LPARAM l){
+    auto scrollAt=[&](int y){RECT r;GetClientRect(h,&r);int count=int(songs.size()),visible=visibleRows(),maximum=std::max(0,count-visible);
+        int thumb=std::min(int(r.bottom),std::max(18,int(r.bottom)*visible/std::max(1,count)));
+        scrollLibrary(maximum?int(double(std::clamp(y-thumb/2,0,std::max(1,int(r.bottom)-thumb)))*maximum/std::max(1,int(r.bottom)-thumb)):0);};
+    switch(m){
+    case WM_ERASEBKGND:return 1;
+    case WM_LBUTTONDOWN:SetCapture(h);scrollAt(short(HIWORD(l)));return 0;
+    case WM_MOUSEMOVE:if(GetCapture()==h)scrollAt(short(HIWORD(l)));return 0;
+    case WM_LBUTTONUP:ReleaseCapture();return 0;
+    case WM_MOUSEWHEEL:scrollLibrary(int(SendMessageW(songList,LB_GETTOPINDEX,0,0))-(GET_WHEEL_DELTA_WPARAM(w)>0?3:-3));return 0;
+    case WM_PAINT:{PAINTSTRUCT ps;auto dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);theme::PaintBuffer paint(dc,r);FillRect(paint.dc,&r,theme::bg());
+        int count=int(songs.size()),visible=visibleRows(),maximum=std::max(0,count-visible),height=int(r.bottom);
+        int thumb=std::min(height,std::max(18,height*visible/std::max(1,count))),top=int(SendMessageW(songList,LB_GETTOPINDEX,0,0));
+        int y=maximum?top*(height-thumb)/maximum:0;RECT track{r.right/2-1,0,r.right/2+1,r.bottom};FillRect(paint.dc,&track,theme::surface());
+        RECT grip{3,y,r.right-3,y+thumb};auto brush=CreateSolidBrush(maximum?theme::muted:RGB(55,49,40));FillRect(paint.dc,&grip,brush);DeleteObject(brush);
+        paint.present();EndPaint(h,&ps);return 0;}
+    }return DefWindowProcW(h,m,w,l);
+}
+int meterSegments(float peak){if(!(peak>0.001f))return 0;return std::clamp(int(std::ceil((20*std::log10(peak)+60)*24/60)),0,24);}
+RECT channelMeterRect(int channel){int x=240+channel*113+94;return RECT{sx(x),sy(566),sx(x+6),sy(710)};}
+void drawChannelMeters(HDC dc){for(int t=0;t<8;++t){float peak=t<6?mixer->channelPeaks[t].load():mixer->returnPeaks[t-6].load();int lit=meterSegments(peak);auto r=channelMeterRect(t);
+    for(int segment=0;segment<24;++segment){int bottom=r.bottom-(r.bottom-r.top)*segment/24,top=r.bottom-(r.bottom-r.top)*(segment+1)/24;RECT bar{r.left,top+1,r.right,bottom};
+        auto brush=CreateSolidBrush(segment<lit?(segment>=23?theme::red:(segment>=21?theme::gold:theme::green)):RGB(48,43,35));FillRect(dc,&bar,brush);DeleteObject(brush);}}
+}
+
 void buildUI(){
     font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"CONSOLA DUB / 0.5.0",0,16,54,200,18);
+    control(L"STATIC",L"CONSOLA DUB / 0.6.0",0,16,54,200,18);
     control(L"BUTTON",L"+  AGREGAR CANCION",WS_TABSTOP,16,94,194,36,idSong);
     control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
     modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
     control(L"STATIC",L"BIBLIOTECA",0,16,216,194,20);
-    songList=control(L"LISTBOX",L"",LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_VSCROLL|WS_TABSTOP,12,245,202,270,900);
-    control(L"BUTTON",L"CARGAR CANCION",WS_TABSTOP,16,528,194,34,idLoadReady);
-    control(L"BUTTON",L"Reintentar",WS_TABSTOP,16,570,94,28,idRetrySong);control(L"BUTTON",L"Quitar",WS_TABSTOP,116,570,94,28,idRemoveSong);
-    libraryStatus=control(L"STATIC",L"Agrega canciones para preparar tus stems.",0,16,610,194,44,901);
+    songList=control(L"LISTBOX",L"",LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_TABSTOP,12,260,184,250,900);
+    SetWindowSubclass(songList,listProc,1,0);
+    sessionLabel=control(L"STATIC",L"Sin guardar",SS_ENDELLIPSIS,16,238,180,16,904);
+    libraryTotal=control(L"STATIC",L"0 pistas / 0:00:00",SS_ENDELLIPSIS,16,516,194,20,903);
+    control(L"BUTTON",L"▲",WS_TABSTOP,200,260,16,22,idListUp);control(L"BUTTON",L"▼",WS_TABSTOP,200,488,16,22,idListDown);
+    scrollRail=control(L"DubScroll",L"",0,200,284,16,200,idListRail);
+    control(L"BUTTON",L"CARGAR CANCION",WS_TABSTOP,16,548,194,34,idLoadReady);
+    control(L"BUTTON",L"Reintentar",WS_TABSTOP,16,592,94,28,idRetrySong);control(L"BUTTON",L"Quitar",WS_TABSTOP,116,592,94,28,idRemoveSong);
+    libraryStatus=control(L"STATIC",L"Agrega canciones para preparar tus stems.",0,16,636,194,64,901);
     audioLabel=control(L"STATIC",L"OUT: sin dispositivo",SS_ENDELLIPSIS,16,730,194,16);
     midiLabel=control(L"STATIC",L"MIDI: desconectado",SS_ENDELLIPSIS,16,752,194,16);
     control(L"BUTTON",L"PLAY",WS_TABSTOP,240,16,66,36,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,312,16,66,36,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,384,16,86,36,idStop);
@@ -517,7 +687,7 @@ void buildUI(){
     clockLabel=control(L"STATIC",L"00:00 / 00:00",0,590,42,450,18);
     control(L"BUTTON",L"PANIC",WS_TABSTOP,1150,16,106,36,idPanic);
     const wchar_t* effects[]={L"TIEMPO",L"FEEDBK",L"DECAY",L"DAMP",L"RATE",L"DEPTH"};
-    for(int e=0;e<6;++e){int x=240+(e/2)*340+202+(e%2)*58;fxDials[e]=dial(x,122,46,52,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-5,176,56,15);}
+    for(int e=0;e<6;++e){int x=240+(e/2)*340+192+(e%2)*68;fxDials[e]=dial(x,122,46,52,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-8,176,62,15,940+e);}
     const wchar_t* labels[]={L"BATERIA",L"BAJO",L"OTROS",L"VOZ",L"SIREN",L"SYNDRUM"};
     for(int t=0;t<6;++t){int x=240+t*113;
         for(int b=0;b<3;++b){sends[t][b]=dial(x+19,216+b*78,74,62,idSend+t*3+b,0);sendLabels[t][b]=control(L"STATIC",L"",SS_CENTER,x+8,279+b*78,96,15);}
@@ -565,14 +735,16 @@ void paintConsole(HDC dc){
         SelectObject(dc,old);DeleteObject(before);DeleteObject(after);
         pen=CreatePen(PS_SOLID,2,theme::gold);old=SelectObject(dc,pen);MoveToEx(dc,playX,inner.top,nullptr);LineTo(dc,playX,inner.bottom);SelectObject(dc,old);DeleteObject(pen);
     }else label(L"Carga una cancion. Clic o arrastra en la onda para navegar.",rect(258,72,950,30),theme::muted,smallFont);
-    float peak=std::min(1.0f,mixer->peak.load());for(int i=0;i<24;++i){auto bar=rect(1232,700-i*7,7,4);auto b=CreateSolidBrush(i<peak*24?(i>20?theme::red:(i>16?theme::gold:theme::green)):RGB(48,43,35));FillRect(dc,&bar,b);DeleteObject(b);}
-    if(songs.empty())label(L"Tu lista esta vacia",rect(24,260,180,25),theme::muted,smallFont);
+    drawChannelMeters(dc);
+    float peak=std::min(1.0f,mixer->peak.load());for(int i=0;i<24;++i){auto bar=rect(1232,700-i*7,7,4);auto b=CreateSolidBrush(i<meterSegments(peak)?(i>=23?theme::red:(i>=21?theme::gold:theme::green)):RGB(48,43,35));FillRect(dc,&bar,b);DeleteObject(b);}
+    if(songs.empty())label(L"Tu lista esta vacia",rect(24,275,166,25),theme::muted,smallFont);
 }
 void drawSong(DRAWITEMSTRUCT* item){if(item->itemID==UINT(-1) || item->itemID>=songs.size())return;
     bool selected=(item->itemState&ODS_SELECTED)!=0;auto r=item->rcItem;theme::card(item->hDC,r,selected?theme::text:theme::background,theme::background);
-    auto& song=songs[item->itemID];auto name=song.source.stem().wstring();auto old=SelectObject(item->hDC,font);SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,selected?theme::background:theme::text);
+    auto& song=songs[item->itemID];auto name=std::to_wstring(item->itemID+1)+L". "+song.source.stem().wstring();auto old=SelectObject(item->hDC,font);SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,selected?theme::background:theme::text);
     r.left+=sx(10);r.right-=sx(8);r.top+=sy(5);r.bottom=r.top+sy(24);DrawTextW(item->hDC,name.c_str(),-1,&r,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS);
-    SelectObject(item->hDC,smallFont);SetTextColor(item->hDC,selected?theme::background:(song.state==L"Lista"?theme::green:theme::gold));r.top+=sy(24);r.bottom+=sy(20);auto detail=song.state+(song.fast?L" / Rapido":L" / Calidad");DrawTextW(item->hDC,detail.c_str(),-1,&r,DT_SINGLELINE|DT_END_ELLIPSIS);SelectObject(item->hDC,old);
+    SelectObject(item->hDC,smallFont);SetTextColor(item->hDC,selected?theme::background:(song.state==L"Lista"?theme::green:theme::gold));r.top+=sy(24);r.bottom+=sy(20);auto state=song.state;if(song.source==loadedSource && song.fast==loadedFast)state=L"Cargada";else if(warmCache.contains(song.cache))state=L"En RAM";else if(warming && song.cache==warmFolder)state=L"Precargando";
+    auto detail=state+L" / "+durationText(song.duration);DrawTextW(item->hDC,detail.c_str(),-1,&r,DT_SINGLELINE|DT_END_ELLIPSIS);SelectObject(item->hDC,old);
 }
 LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     switch(message){
@@ -598,6 +770,11 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
     case WM_APP+24:for(size_t i=0;i<songs.size();++i)if(songs[i].source==loadedSource && songs[i].fast==loadedFast)return LRESULT(i+1);return 0;
     case WM_APP+25:return mixer->playing.load();
     case WM_APP+26:return selectedOutput;
+    case WM_APP+27:return warmHits;
+    case WM_APP+28:{unsigned mask=0;for(size_t i=0;i<songs.size()&&i<31;++i)if(warmCache.contains(songs[i].cache))mask|=1u<<i;return mask;}
+    case WM_APP+29:{double total=0;for(auto& song:songs){if(song.duration<0)return -1;total+=song.duration;}return LRESULT(std::llround(total*1000));}
+    case WM_APP+30:return wp<6?LRESULT(mixer->channelPeaks[wp].load()*1000000):0;
+    case WM_APP+31:return LRESULT(warmCache.bytes());
     case WM_APP+20:return paintCount; // Read-only idle repaint regression probe.
     case WM_TIMER:updateStatus();return 0;
     case WM_HSCROLL:{
@@ -615,6 +792,11 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
         }return 0;}
     case WM_COMMAND:{int id=LOWORD(wp);
         int selected=int(SendMessageW(songList,LB_GETCURSEL,0,0));
+        if(id==idSessionSave||id==idSessionSaveAs){saveSessionDialog(id==idSessionSaveAs);return 0;}
+        if(id==idSessionOpen){openSessionDialog();return 0;}
+        if(id==idSessionNew){newSession();return 0;}
+        if(id==idListUp||id==idListDown){moveLibrarySelection(id==idListUp?-1:1);return 0;}
+        if(id==900 && HIWORD(wp)==LBN_SELCHANGE){selectionChanged=GetTickCount64();return 0;}
         if(id==idNext){nextSong();return 0;}
         if(id==idTogglePlay){SendMessageW(window,WM_COMMAND,mixer->playing?idPause:idPlay,0);return 0;}
         if(id>=idOutputBase && id<idOutputBase+int(deviceIds.size())){
@@ -624,7 +806,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
         if(id==idLoadReady || (id==900 && HIWORD(wp)==LBN_DBLCLK)){requestLoad();return 0;}
         if(id==idQueuePause){queuePaused=!queuePaused;setText(GetDlgItem(window,idQueuePause),queuePaused?L"Seguir cola":L"Pausar cola");return 0;}
         if(id==idRemoveSong && selected>=0 && size_t(selected)<songs.size()){
-            if(preparing || loading){error(L"Espera a que termine el trabajo antes de quitar entradas.");return 0;}songs.erase(songs.begin()+selected);saveLibrary();refreshLibrary();return 0;}
+            if(preparing || loading){error(L"Espera a que termine el trabajo antes de quitar entradas.");return 0;}warmCache.erase(songs[selected].cache);songs.erase(songs.begin()+selected);sessionDirty=true;saveLibrary();refreshLibrary();return 0;}
         if(id==idRetrySong && selected>=0 && size_t(selected)<songs.size() && selected!=activeJob){songs[selected].state=L"En cola";refreshLibrary();runNext();return 0;}
 
         if(id==idCancel){queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");cancelPreparation=true;setProgress(L"Cancelando al terminar el bloque actual...");return 0;}
@@ -635,14 +817,14 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
             saveLibrary();buildMenus();return 0;}
         if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;setText(midiLabel,L"Pulsa un boton MIDI (REC ARM 1-4 reservado).");return 0;}
         if(id==idLastError){showStemError();return 0;}
-        if(id==idAbout){theme::message(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Play. Bank Right: Reiniciar. SOLO + MUTE 7: Pausa. Espacio: Play/Pausa. REC ARM 1-4: Solo. SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.5.0",MB_OK);return 0;}
+        if(id==idAbout){theme::message(window,L"Agrega canciones en Archivo. El analisis no detiene la musica. En la lista: espera Lista, pulsa Pausa y Cargar seleccionada, despues Play.\n\nBank Left: Play. Bank Right: Reiniciar. SOLO + MUTE 7: Pausa. Espacio: Play/Pausa. REC ARM 1-4: Solo. SEND ALL transmite todos los controles y no se utiliza como transporte. Aprende otros botones en Transporte.\n\nGPU experimental: selecciona NVIDIA en Preferencias. Si falla, usa CPU y Reintentar. Rapido y Calidad tienen caches separados. No requiere Internet tras descargar sus modelos.",L"DubStemMix alpha 0.6.0",MB_OK);return 0;}
         if(id==idDataFolder){if(preparing || loading){error(L"Espera a que termine el trabajo antes de cambiar la carpeta.");return 0;}BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
             auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");theme::message(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
         if(id==idClearSolo){for(int t=0;t<6;++t){mixer->strip[t].solo=false;syncButtons(t);}return 0;}
         if(id==idPanic){mixer->panic();resetGestures();for(auto& row:instrumentOn)for(auto& on:row)on=false;for(int t=4;t<6;++t)syncInstrumentUI(t);return 0;}
         if(id>=idFX && id<idFX+6){int a=id-idFX;effectAction(a,!fxOn[a]);return 0;}
-        if(id>=idClear && id<idClear+6){if(loading)return 0;if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;setText(names[t],L"Sin pista");syncInstrumentUI(t);rebuildWaveform();loadedSource.clear();resetPickup();InvalidateRect(window,nullptr,FALSE);return 0;}
+        if(id>=idClear && id<idClear+6){if(loading)return 0;if(mixer->playing){error(L"Deten la reproduccion antes de vaciar una pista");return 0;}stopAudio();mixer->reset();resetGestures();int t=id-idClear;mixer->strip[t].samples.clear();mixer->strip[t].mute=false;mixer->strip[t].solo=false;setText(names[t],L"Sin pista");syncInstrumentUI(t);rebuildWaveform();loadedSource.clear();loadedCache.clear();resetPickup();InvalidateRect(window,nullptr,FALSE);return 0;}
         if(id>=idLoad && id<idLoad+6){loadTrack(id-idLoad);return 0;}
         if(id>=idMute && id<idMute+6){int t=id-idMute;if(mixer->isInstrument(t)){instrumentAction(t-4,0,t==4?!instrumentOn[0][0]:true);return 0;}auto& state=((GetKeyState(VK_MENU)&0x8000)||mixer->strip[t].solo.load())?mixer->strip[t].solo:mixer->strip[t].mute;state=!state.load();syncButtons(t);return 0;}
         if(id>=idSolo && id<idSolo+6){int t=id-idSolo;if(mixer->isInstrument(t)){instrumentAction(t-4,1,!instrumentOn[t-4][1]);return 0;}mixer->strip[t].solo=!mixer->strip[t].solo.load();syncButtons(t);return 0;}
@@ -660,7 +842,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
         case idMidi:connectMidi();break;
 
         }return 0;}
-    case WM_CLOSE:if(loading){cancelLoad=true;if(loader.joinable())loader.join();loading=false;}if(preparing.load()){queuePaused=true;cancelPreparation=true;error(L"Cancelando preparacion. Espera a que termine el bloque actual y vuelve a cerrar.");return 0;}saveLibrary();KillTimer(h,1);closeAudio();closeMidi();DestroyWindow(h);return 0;
+    case WM_CLOSE:stopBackground();if(loading){cancelLoad=true;if(loader.joinable())loader.join();loading=false;}if(preparing.load()){queuePaused=true;cancelPreparation=true;error(L"Cancelando preparacion. Espera a que termine el bloque actual y vuelve a cerrar.");return 0;}saveLibrary();KillTimer(h,1);closeAudio();closeMidi();DestroyWindow(h);return 0;
     case WM_DESTROY:PostQuitMessage(0);return 0;
     }
     return DefWindowProcW(h,message,wp,lp);
@@ -677,7 +859,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
         Gdiplus::GdiplusStartupInput graphicsInput;ULONG_PTR graphicsToken=0;
         if(Gdiplus::GdiplusStartup(&graphicsToken,&graphicsInput,nullptr)!=Gdiplus::Ok)return 1;
-        theme::registerDial(instance);
+        theme::registerDial(instance);WNDCLASSW scrollClass{};scrollClass.hInstance=instance;scrollClass.lpfnWndProc=scrollProc;scrollClass.lpszClassName=L"DubScroll";scrollClass.hCursor=LoadCursorW(nullptr,IDC_HAND);RegisterClassW(&scrollClass);
         mixer=std::make_unique<dubwin::Mixer>();
         const ma_backend backend=uiTestMode?ma_backend_null:ma_backend_wasapi;
         if(ma_context_init(&backend,1,nullptr,&context)!=MA_SUCCESS){error(L"No se pudo iniciar WASAPI.");return 1;}
@@ -686,11 +868,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=windowProc;cls.lpszClassName=L"DubStemMixWinAlpha";
         cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=theme::bg();
         RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1280,int(work.right-work.left)-20),std::min(800,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,FALSE);
-        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.5.0",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        HWND h=CreateWindowW(cls.lpszClassName,L"DubStemMix — Windows alpha 0.6.0",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
         if(!h){ma_context_uninit(&context);return 1;}
         ShowWindow(h,show);UpdateWindow(h);
-        if(uiTestMode){for(int i=0;i<2;++i){auto folder=std::filesystem::temp_directory_path()/(L"DubStemMix-ui-"+std::to_wstring(GetCurrentProcessId()))/std::to_wstring(i);dubwin::createPreviewSong(folder,i);Song song;song.source=folder/(i?L"Segunda cancion.wav":L"Prueba de reproduccion.wav");song.cache=folder;song.state=L"Lista";songs.push_back(song);}refreshLibrary();requestLoadIndex(0);}
+        if(uiTestMode){for(int i=0;i<8;++i){auto folder=std::filesystem::temp_directory_path()/(L"DubStemMix-ui-"+std::to_wstring(GetCurrentProcessId()))/std::to_wstring(i);dubwin::createPreviewSong(folder,i);Song song;song.source=folder/(i?L"Cancion "+std::to_wstring(i+1)+L".wav":L"Prueba de reproduccion.wav");song.cache=folder;song.state=L"Lista";songs.push_back(song);}refreshLibrary();requestLoadIndex(0);}
         MSG msg{};
         while(GetMessageW(&msg,nullptr,0,0)>0){
             if(IsWindowEnabled(h) && (msg.hwnd==h||IsChild(h,msg.hwnd)) && (msg.message==WM_KEYDOWN||msg.message==WM_KEYUP) && msg.wParam==VK_SPACE){
@@ -698,5 +880,5 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
             }
             if(!(libraryWindow && IsDialogMessageW(libraryWindow,&msg)) && !IsDialogMessageW(h,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
         ma_context_uninit(&context);contextReady=false;mixer.reset();if(font)DeleteObject(font);if(headingFont)DeleteObject(headingFont);if(smallFont)DeleteObject(smallFont);Gdiplus::GdiplusShutdown(graphicsToken);return 0;
-    }catch(const std::exception& e){auto text=wide(e.what());error(text.c_str());closeAudio();closeMidi();if(contextReady)ma_context_uninit(&context);return 1;}
+    }catch(const std::exception& e){auto text=wide(e.what());error(text.c_str());stopBackground();closeAudio();closeMidi();if(contextReady)ma_context_uninit(&context);return 1;}
 }

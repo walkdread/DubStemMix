@@ -196,6 +196,12 @@ std::array<std::vector<float>,4> separateSong(const fs::path& file,std::atomic<b
 }
 
 namespace dubwin {
+double audioDuration(const fs::path& file){
+    ma_decoder decoder{};auto cfg=ma_decoder_config_init(ma_format_f32,2,48000);
+    if(ma_decoder_init_file_w(file.c_str(),&cfg,&decoder)!=MA_SUCCESS)return -2;
+    ma_uint64 frames=0;auto result=ma_decoder_get_length_in_pcm_frames(&decoder,&frames);ma_decoder_uninit(&decoder);
+    return result==MA_SUCCESS && frames?double(frames)/48000.0:-2;
+}
 void createPreviewSong(const fs::path& folder,int variant){
     fs::create_directories(folder);std::atomic<bool> cancel{false};std::ofstream manifest(folder/L"complete.txt");
     for(int t=0;t<4;++t){std::vector<float> samples(44100*2*8);for(size_t f=0;f<samples.size()/2;++f){float v=0.1f*std::sin(float(f)*(0.01f+0.003f*t+0.001f*variant))*(0.2f+0.8f*std::abs(std::sin(float(f)*0.00003f)));samples[f*2]=samples[f*2+1]=v;}

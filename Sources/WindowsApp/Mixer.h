@@ -39,6 +39,8 @@ public:
     std::array<Strip, tracks> strip;
     std::array<std::atomic<float>, buses> returns{{0.5f, 0.5f, 0.5f}};
     std::atomic<float> master{0.5f}, peak{0};
+    std::array<std::atomic<float>,6> channelPeaks{};
+    std::array<std::atomic<float>,3> returnPeaks{};
     std::atomic<bool> playing{false};
     std::atomic<uint64_t> position{0};
     Mixer() {
@@ -83,6 +85,7 @@ public:
         for (auto* e : instruments) dub_effect_prepare(e,rate);
         playing.store(false); seekTarget.store(UINT64_MAX);seekFade=0;lastOutput[0]=lastOutput[1]=0; cursor = 0; position.store(0); peak.store(0);
         smoothMaster = 0; smoothReturn.fill(0);
+        for(auto& p:channelPeaks)p=0;for(auto& p:returnPeaks)p=0;
         for (auto& s : strip) { s.smoothLevel = 0; s.smoothSend.fill(0); }
         for (auto* e : fx) dub_effect_prepare(e, rate);
         dub_effect_prepare(limiter, rate);
@@ -93,7 +96,7 @@ public:
     }
     // All arrays are allocated before audio starts. No I/O, allocation or mutex here.
     void render(float* output, unsigned frames) noexcept {
-        float blockPeak = 0;
+        float blockPeak = 0;std::array<float,6> channelMax{};std::array<float,3> returnMax{};
         for (unsigned offset = 0; offset < frames; offset += quantum) {
             const auto targetPosition=seekTarget.exchange(UINT64_MAX,std::memory_order_acquire);
             if(targetPosition!=UINT64_MAX){cursor=std::min<uint64_t>(targetPosition,totalFrames());seekFade=128;seekFrom[0]=lastOutput[0];seekFrom[1]=lastOutput[1];}
@@ -119,6 +122,7 @@ public:
                     const bool valid = run && p+1 < s.samples.size();
                     const float l = (instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0))*s.smoothLevel;
                     const float r = (instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0))*s.smoothLevel;
+                    channelMax[t]=std::max(channelMax[t],std::max(std::abs(l),std::abs(r)));
                     dry[0][i] += l; dry[1][i] += r;
                     for (int b = 0; b < buses; ++b) {
                         s.smoothSend[b] += (targetSend[b]-s.smoothSend[b])*(1.0f/480.0f);
@@ -132,6 +136,7 @@ public:
                 const float target = returns[b].load();
                 for (unsigned i = 0; i < n; ++i) {
                     smoothReturn[b] += (target-smoothReturn[b])*(1.0f/480.0f);
+                    returnMax[b]=std::max(returnMax[b],std::max(std::abs(wet[0][i]),std::abs(wet[1][i]))*smoothReturn[b]);
                     dry[0][i] += wet[0][i]*smoothReturn[b]; dry[1][i] += wet[1][i]*smoothReturn[b];
                 }
             }
@@ -151,6 +156,8 @@ public:
             }
             if (run) { cursor += n; if (cursor >= totalFrames()) playing.store(false); }
         }
+        for(int t=0;t<6;++t)channelPeaks[t].store(channelMax[t],std::memory_order_relaxed);
+        for(int b=0;b<3;++b)returnPeaks[b].store(returnMax[b],std::memory_order_relaxed);
         position.store(cursor, std::memory_order_relaxed); peak.store(blockPeak, std::memory_order_relaxed);
     }
 };

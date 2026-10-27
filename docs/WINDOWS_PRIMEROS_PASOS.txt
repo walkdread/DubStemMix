@@ -1,4 +1,15 @@
-DubStemMix para Windows x64 — alpha 0.5.0
+DubStemMix para Windows x64 — alpha 0.6.0
+
+NOVEDADES 0.6.0
+- Precarga automatica de la cancion seleccionada o de la siguiente Lista. En RAM significa que se puede cargar sin volver a leer/convertir sus stems. Lista solo significa preparada en disco.
+- Precarga limitada a 1 GB (ademas del audio actual y buffers temporales de carga/analisis). Conserva canciones recientes mientras quepan. No mantiene toda una biblioteca grande en RAM. Tras abrir el programa necesita unos instantes para precargar.
+- Medidores junto a los faders 1-8 y master. Los de pista muestran audio despues de volumen/Mute/Solo, antes del master; los de retorno muestran el efecto. Escala de -60 a 0 dBFS.
+- Textos y numeros de las perillas mas pequenos, sin amontonarse.
+- Biblioteca numerada con duracion de cada cancion y duracion total al pie. + ? significa que alguna duracion esta pendiente o no se pudo leer; --:-- indica cual.
+- Desplazamiento oscuro compacto, botones arriba/abajo, rueda y flechas del teclado. Las flechas seleccionan sin cambiar la cancion que esta sonando; Cargar o doble clic la carga.
+- Archivo > Guardar biblioteca / Guardar biblioteca como crea un archivo .dubset. Archivo > Abrir biblioteca recupera lista, orden, duraciones, modo de separacion y rutas de stems. Nueva biblioteca vacia la lista.
+- El asterisco junto al nombre indica cambios sin guardar. Antes de cambiar de biblioteca se ofrece guardar/descartar/cancelar. Cerrar conserva la recuperacion automatica de la lista, pero usa Guardar para actualizar tu archivo .dubset.
+- Las bibliotecas guardan referencias: no copian canciones/modelos ni los efectos/faders. Conserva los originales y carpetas de stems. Si faltan archivos se indica en la lista; no se reanalizan automaticamente al abrir.
 
 NOVEDADES 0.5.0
 - SIGUIENTE busca la siguiente cancion Lista. Si estas reproduciendo, la actual sigue hasta cargar la nueva, que empieza desde el inicio. No es un crossfade. Si estas en pausa, carga sin reproducir.
@@ -52,7 +63,7 @@ LISTA Y PREPARACION EN SEGUNDO PLANO
 7. Pausar cola deja terminar el trabajo actual. Cancelar proceso cancela el actual
    entre bloques y pausa la cola. Continuar cola permite seguir con los pendientes.
 8. Quitar elimina la entrada, no los archivos originales ni los stems guardados.
-   Por ahora hay una lista persistente (maximo 1000 entradas), no multiples setlists.
+   Cada biblioteca admite hasta 1000 entradas. Puedes guardar varias como archivos .dubset.
 
 MODELOS Y GPU
 - Tras descargar el modelo elegido, funciona sin Internet. No subimos canciones.
@@ -112,7 +123,7 @@ EFECTOS
 
 LIMITES
 Es una alpha: el diseño se aproxima al original, no hay paridad completa.
-No incluye proyectos completos/multiples setlists, grabacion, plugins, ASIO, bancos, instrumentos
+No incluye proyectos completos de mezcla, grabacion, plugins, ASIO, bancos, instrumentos
 adicionales ni todas las paginas y gestos de macOS. ROLL no sigue aun un BPM.
 La carga individual de stems sigue disponible en Cargar. Limite de audio
 precargado: 1 GB. Se usa WASAPI compartido y 48 kHz internos.

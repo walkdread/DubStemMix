@@ -10,6 +10,7 @@ using Progress = std::function<void(const std::wstring&)>;
 std::filesystem::path dataRoot();
 void setDataRoot(const std::filesystem::path& folder);
 int separationSelfTest();
+double audioDuration(const std::filesystem::path& file);
 void createPreviewSong(const std::filesystem::path& folder,int variant);
 std::filesystem::path configRoot();
 struct SeparationOptions { bool fast=true; int gpu=-1; };

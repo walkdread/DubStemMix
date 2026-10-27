@@ -21,12 +21,15 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.5.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.6.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   if ([WindowCapture]::GetDlgItem($app.MainWindowHandle,900) -eq [IntPtr]::Zero) { throw 'Integrated library missing' }
   $h = $app.MainWindowHandle
   function Read-Probe([int]$id) { return [WindowCapture]::SendMessage($h,[uint32](0x8000+$id),[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() }
   for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
   if ((Read-Probe 24) -ne 1 -or (Read-Probe 22) -lt 380000) { throw 'Prepared song did not load' }
+  for ($i=0; $i -lt 100 -and (((Read-Probe 28) -band 2) -eq 0 -or (Read-Probe 29) -lt 63000); $i++) { Start-Sleep -Milliseconds 100 }
+  if (((Read-Probe 28) -band 2) -eq 0) { throw 'Next song was not prefetched to RAM' }
+  if ([Math]::Abs((Read-Probe 29)-64000) -gt 20) { throw 'Total duration of the eight-song library is wrong' }
   foreach ($note in @(3,6,9,12)) {
     [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x90 -bor ($note -shl 8) -bor (127 -shl 16)),[IntPtr]::Zero)
     [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x80 -bor ($note -shl 8)),[IntPtr]::Zero)
@@ -48,13 +51,50 @@ try {
   [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x90 -bor (25 -shl 8) -bor (127 -shl 16)),[IntPtr]::Zero)
   [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x80 -bor (25 -shl 8)),[IntPtr]::Zero)
   if ((Read-Probe 25) -ne 1) { throw 'Bank Left did not start playback' }
+  Start-Sleep -Milliseconds 150
+  if ([WindowCapture]::SendMessage($h,0x801e,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -le 1000) { throw 'Channel meter did not detect audio' }
+  $switchTime = [System.Diagnostics.Stopwatch]::StartNew()
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]16,[IntPtr]::Zero)
+  $switchTime.Stop()
+  if ((Read-Probe 27) -lt 1 -or (Read-Probe 24) -ne 2) { throw 'Prepared RAM song was not installed synchronously' }
+  Write-Output "PASS RAM switch: $($switchTime.ElapsedMilliseconds) ms (test machine)"
+  if ((Read-Probe 31) -gt 1073741824) { throw 'Warm cache exceeded its budget' }
   for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 2; $i++) { Start-Sleep -Milliseconds 100 }
   if ((Read-Probe 24) -ne 2 -or (Read-Probe 25) -ne 1) { throw 'Next did not load and play the next prepared song' }
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]1000,[IntPtr]::Zero)
   if ((Read-Probe 26) -ne 0) { throw 'Output menu selection failed' }
   Write-Output 'PASS REC ARM Solo, Space Play/Pause, Bank Left, Next and output menu'
+  # Session save/new/open exercises the actual serializer and UI commands without file pickers in test mode.
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]870,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]873,[IntPtr]::Zero)
+  if ([WindowCapture]::SendMessage($list,0x18b,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 0) { throw 'New library did not clear entries' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]872,[IntPtr]::Zero)
+  if ([WindowCapture]::SendMessage($list,0x18b,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 8) { throw 'Session reopen lost entries' }
+  if ([Math]::Abs((Read-Probe 29)-64000) -gt 20) { throw 'Session reopen lost duration' }
+  [void][WindowCapture]::SendMessage($list,0x186,[IntPtr]::Zero,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]906,[IntPtr]::Zero)
+  if ([WindowCapture]::SendMessage($list,0x188,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 1) { throw 'Library down arrow failed' }
+  [void][WindowCapture]::PostMessage($list,0x100,[IntPtr]38,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 100
+  if ([WindowCapture]::SendMessage($list,0x188,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -ne 0) { throw 'Keyboard Up did not navigate library' }
+  $rail = [WindowCapture]::GetDlgItem($h,907)
+  if ($rail -eq [IntPtr]::Zero) { throw 'Custom library scrollbar missing' }
+  $rr = New-Object WindowCapture+RECT
+  [void][WindowCapture]::GetClientRect($rail,[ref]$rr)
+  $rp = [IntPtr]((($rr.Bottom-2) -shl 16) -bor 8)
+  [void][WindowCapture]::SendMessage($rail,0x201,[IntPtr]1,$rp)
+  [void][WindowCapture]::SendMessage($rail,0x202,[IntPtr]::Zero,$rp)
+  if ([WindowCapture]::SendMessage($list,0x18e,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -le 0) { throw 'Custom library scrollbar did not scroll' }
+  [void][WindowCapture]::PostMessage($list,0x100,[IntPtr]36,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 100
+  [void][WindowCapture]::SendMessage($list,0x186,[IntPtr]::Zero,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]801,[IntPtr]::Zero)
+  for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
+  if ((Read-Probe 24) -ne 1) { throw 'Reopened session song could not load' }
+  Start-Sleep -Milliseconds 500
+  Write-Output 'PASS session save/new/open, library duration, arrows, scrollbar and per-channel meter'
+
   foreach ($view in @(@(1280,850,$Output), @(1024,700,($Output -replace '.png$','-compact.png')))) {
     [void][WindowCapture]::SetWindowPos($app.MainWindowHandle,[IntPtr]::Zero,0,0,$view[0],$view[1],4)
     Start-Sleep -Milliseconds 350

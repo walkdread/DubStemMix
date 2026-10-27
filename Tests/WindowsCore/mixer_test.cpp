@@ -1,6 +1,8 @@
 #include "Mixer.h"
 #include "Overlap.h"
 #include "PlaybackCache.h"
+#include "WarmCache.h"
+#include "Session.h"
 #include <cstdio>
 #define CHECK(x) do {if(!(x)){std::fprintf(stderr,"Failed line %d: %s\n",__LINE__,#x); return 1;}}while(0)
 int main() {
@@ -85,6 +87,33 @@ int main() {
         try{dubwin::readPlaybackCache(path,42,restored,restoredPeaks,cancel);}catch(const std::exception&){stopped=true;}CHECK(stopped);
         std::filesystem::remove(path);
     }
+    // Per-strip meters measure actual post-fader/post-mute signal, independently of master gain.
+    {
+        dubwin::Mixer metered;metered.strip[0].samples.assign(96000,0.5f);metered.strip[1].samples.assign(96000,0.1f);metered.playing=true;
+        for(int b=0;b<16;++b)metered.render(out,512);
+        CHECK(metered.channelPeaks[0]>0.3f && metered.channelPeaks[1]>0.06f);
+        metered.strip[0].mute=true;for(int b=0;b<16;++b)metered.render(out,512);
+        CHECK(metered.channelPeaks[0]<0.001f && metered.channelPeaks[1]>0.06f);
+        metered.reset();for(auto& peak:metered.channelPeaks)CHECK(peak==0);
+    }
+    // Memory cache moves sample ownership, enforces its budget and evicts oldest buffers.
+    {
+        dubwin::WarmCache cache(4096);auto make=[](const char* key){dubwin::WarmAudio audio;audio.key=key;for(auto& stem:audio.stems)stem.assign(128,0.25f);return audio;};
+        cache.put(make("a"));cache.put(make("b"));CHECK(cache.bytes()==4096);cache.put(make("c"));CHECK(!cache.contains("a") && cache.contains("b"));
+        dubwin::WarmAudio hit;CHECK(cache.take("b",hit));CHECK(hit.stems[0][1]==0.25f && !cache.contains("b"));CHECK(cache.bytes()==2048);
+        cache.reserve(4096);CHECK(cache.bytes()==0);
+    }
+    // Named libraries preserve Unicode paths, order and durations, and replace atomically.
+    {
+        auto file=std::filesystem::temp_directory_path()/"dubstem-session-test.dubset";
+        std::vector<dubwin::SessionEntry> list{{std::filesystem::u8path(u8"musica/canción ñ.wav"),"stems/one",true,123.25},{"second.mp3","",false,-1}};
+        dubwin::writeSession(file,list);auto restored=dubwin::readSession(file);CHECK(restored.size()==2);
+        CHECK(restored[0].source==std::filesystem::absolute(list[0].source) && restored[0].duration==123.25 && restored[0].fast);
+        CHECK(restored[1].source==std::filesystem::absolute(list[1].source) && !restored[1].fast && restored[1].cache.empty());
+        dubwin::writeSession(file,{});CHECK(dubwin::readSession(file).empty());
+        {std::ofstream bad(file);bad<<"DubStemMix Library 1\n2\n";}bool rejected=false;
+        try{dubwin::readSession(file);}catch(const std::exception&){rejected=true;}CHECK(rejected);std::filesystem::remove(file);
+    }
     // Weighted overlap must reconstruct a constant without gaps, including the padded tail.
     const size_t total=dubwin::modelFrames+dubwin::stride+37;
     dubwin::Accumulator accumulation(total);std::vector<float> ones(dubwin::modelFrames,1);
@@ -92,5 +121,5 @@ int main() {
     accumulation.normalize();for(float x:accumulation.samples)CHECK(std::abs(x-1)<1e-6);
     dubwin::Pickup p; CHECK(!p.accept(0,0.5f)); CHECK(!p.accept(40,0.5f)); CHECK(p.accept(80,0.5f));
     p.reset(); CHECK(!p.accept(127,0.5f)); CHECK(p.accept(64,0.5f));
-    std::puts("PASS: silence, sample alignment, pause, reset, EOF, overload, instruments, panic, overlap-add MIDI pickup, seeking and playback cache");
+    std::puts("PASS: silence, sample alignment, pause, reset, EOF, overload, instruments, panic, overlap-add MIDI pickup, seeking, playback cache, meters, warm cache and sessions");
 }

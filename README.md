@@ -1,7 +1,7 @@
-> Interfaz 0.4: biblioteca integrada, consola inspirada en macOS, perillas con arcos y ventana ajustable.
-> **Windows alpha 0.4:** lista persistente y cola de separacion mientras reproduce,
-> modo Rapido (HTDemucs) / Calidad (FT), menus y transporte MIDI configurable.
-> DirectML GPU es experimental; requiere prueba en hardware. SEND ALL no es Play.
+> **Windows alpha 0.6:** precarga en RAM limitada, medidores por canal, bibliotecas numeradas con duracion y sesiones .dubset.
+> Onda navegable, Siguiente, REC ARM 1–4 para Solo y Espacio para Play/Pausa.
+> Separacion local Rapido/Calidad, cache de reproduccion y analisis en segundo plano.
+> DirectML GPU sigue experimental. SEND ALL no es Play.
 > Consulta [LEEME Windows](docs/WINDOWS_PRIMEROS_PASOS.txt) para instrucciones actuales.
 
 <p align="center"><img src="Design/AppIcon-1024.png" width="128" alt="DubStemMix icon"></p>
