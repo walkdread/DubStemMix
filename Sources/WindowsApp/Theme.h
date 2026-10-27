@@ -84,6 +84,10 @@ inline void button(DRAWITEMSTRUCT* item){auto dc=item->hDC;auto r=item->rcItem;
     COLORREF highlight=(id==304||id==305||id==22)?red:gold;
     bool primary=id==10||id==801;COLORREF fill=on?highlight:(primary?text:panel);
     FillRect(dc,&r,surface());card(dc,r,fill,down?gold:(on?highlight:RGB(55,49,40)));
+    if(id==905||id==906){int cx=(r.left+r.right)/2,cy=(r.top+r.bottom)/2,sign=id==905?1:-1;
+        POINT points[]={{cx,cy-3*sign},{cx-3,cy+2*sign},{cx+3,cy+2*sign}};
+        auto brush=CreateSolidBrush(text);auto oldBrush=SelectObject(dc,brush),oldPen=SelectObject(dc,GetStockObject(NULL_PEN));Polygon(dc,points,3);SelectObject(dc,oldBrush);SelectObject(dc,oldPen);DeleteObject(brush);return;
+    }
     auto f=reinterpret_cast<HFONT>(SendMessageW(item->hwndItem,WM_GETFONT,0,0));auto old=SelectObject(dc,f?f:GetStockObject(DEFAULT_GUI_FONT));
     wchar_t label[128];GetWindowTextW(item->hwndItem,label,128);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,(on||primary)?background:text);InflateRect(&r,-2,0);DrawTextW(dc,label,-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);SelectObject(dc,old);
     if(item->itemState&ODS_FOCUS){InflateRect(&r,-3,-3);DrawFocusRect(dc,&r);}
