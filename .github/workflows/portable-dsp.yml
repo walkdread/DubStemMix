@@ -1,0 +1,21 @@
+name: Portable DSP
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  dsp:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Windows (C11 atomics via LLVM)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build-portable -G "Visual Studio 17 2022" -A x64 -T ClangCL
+      - name: Configure Unix
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build-portable -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-portable --config Release
+      - run: ctest --test-dir build-portable -C Release --output-on-failure

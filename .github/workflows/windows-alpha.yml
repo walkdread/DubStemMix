@@ -1,0 +1,45 @@
+name: Windows executable (alpha)
+on:
+  push:
+    branches: ["port/windows-alpha"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native Windows application
+        run: cmake -S . -B build-windows -G "Visual Studio 17 2022" -A x64 -T ClangCL -DDUB_BUILD_WINDOWS_APP=ON
+      - name: Compile
+        run: cmake --build build-windows --config Release --parallel 2
+      - name: Test DSP and mixer
+        run: ctest --test-dir build-windows -C Release --output-on-failure
+      - name: Package portable application
+        run: cmake --install build-windows --config Release --prefix package/DubStemMix-Windows-alpha
+      - name: Launch and capture Windows console
+        shell: pwsh
+        run: ./tools/windows-preview.ps1 -Executable "$pwd/package/DubStemMix-Windows-alpha/DubStemMix.exe" -Output "$pwd/windows-preview.png"
+      - name: Validate real stem separation (synthetic audio)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "$pwd/package/DubStemMix-Windows-alpha/DubStemMix.exe" -ArgumentList '--check-separation' -Wait -PassThru -RedirectStandardError "$pwd/separation-test.log"
+          Get-Content "$pwd/separation-test.log"
+          if ($p.ExitCode -ne 0) { throw "Separation integration failed: $($p.ExitCode)" }
+      - name: Upload verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-verification
+          path: |
+            windows-preview*.png
+            separation-test.log
+      - name: Upload downloadable application
+        uses: actions/upload-artifact@v4
+        with:
+          name: DubStemMix-Windows-x64-alpha
+          path: package/DubStemMix-Windows-alpha/
+          if-no-files-found: error
+          retention-days: 30
