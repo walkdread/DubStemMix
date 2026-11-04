@@ -23,9 +23,13 @@ struct PaintBuffer {
 inline Gdiplus::Color color(COLORREF c){return Gdiplus::Color(255,GetRValue(c),GetGValue(c),GetBValue(c));}
 inline void card(HDC dc,RECT r,COLORREF fill,COLORREF stroke){
     Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    Gdiplus::GraphicsPath path;float x=float(r.left)+0.5f,y=float(r.top)+0.5f,w=float(r.right-r.left)-1,h=float(r.bottom-r.top)-1,d=12;
+    Gdiplus::GraphicsPath path;float x=float(r.left)+0.5f,y=float(r.top)+0.5f,w=float(r.right-r.left)-1,h=float(r.bottom-r.top)-1,d=std::min(18.f,h);
     path.AddArc(x,y,d,d,180,90);path.AddArc(x+w-d,y,d,d,270,90);path.AddArc(x+w-d,y+h-d,d,d,0,90);path.AddArc(x,y+h-d,d,d,90,90);path.CloseFigure();
     Gdiplus::SolidBrush brush(color(fill));Gdiplus::Pen pen(color(stroke));g.FillPath(&brush,&path);g.DrawPath(&pen,&path);
+}
+inline void sidebar(HDC dc,RECT r){
+    Gdiplus::Graphics g(dc);Gdiplus::LinearGradientBrush brush(Gdiplus::Point(r.left,r.top),Gdiplus::Point(r.left,r.bottom),color(RGB(38,38,24)),color(background));
+    g.FillRectangle(&brush,r.left,r.top,r.right-r.left,r.bottom-r.top);
 }
 inline void active(HWND h,bool on){if(bool(GetPropW(h,L"active"))!=on){SetPropW(h,L"active",reinterpret_cast<HANDLE>(INT_PTR(on)));InvalidateRect(h,nullptr,FALSE);}}
 struct Dial {HFONT font{};int value=0;bool fader=false,drag=false;int startY=0,startValue=0;};
@@ -53,13 +57,18 @@ inline LRESULT CALLBACK dialProc(HWND h,UINT m,WPARAM w,LPARAM l){
         if(id>=500 && id<518){int bus=(id-500)%3;accent=bus==1?green:(bus==2?red:gold);}
         if(id==514 || id==517)accent=gold;
         if(id==512 || id==513 || id==515 || id==516)accent=text;
+        const COLORREF channels[]={RGB(66,170,90),RGB(77,150,211),RGB(171,118,210),RGB(225,174,61),RGB(225,113,59),RGB(210,102,143)};
+        if(id>=200&&id<206)accent=channels[id-200];
+        if(id==600)accent=gold;if(id==601)accent=green;if(id==602||id==730||id==731)accent=red;
+        if(id==610)accent=text;
+        if(id>=740&&id<746)accent=id<742?gold:(id<744?green:red);
         if(id>=700 && id<706)accent=(id<702?gold:(id<704?green:red));
         auto f=d->font;auto previous=SelectObject(dc,f?f:GetStockObject(DEFAULT_GUI_FONT));
         if(d->fader){
             int center=width/2;RECT groove{center-2,12,center+2,height-12};FillRect(dc,&groove,bg());
             auto pen=CreatePen(PS_SOLID,1,RGB(64,57,47));auto old=SelectObject(dc,pen);
             for(int j=0;j<=10;++j){int y=12+(height-24)*j/10;MoveToEx(dc,center+21,y,nullptr);LineTo(dc,center+(j%5==0?30:26),y);}SelectObject(dc,old);DeleteObject(pen);
-            int y=height-14-(height-28)*d->value/127;RECT thumb{center-17,y-9,center+17,y+9};card(dc,thumb,text,text);
+            int y=height-14-(height-28)*d->value/127;RECT thumb{center-17,y-9,center+17,y+9};card(dc,thumb,accent,accent);
             pen=CreatePen(PS_SOLID,1,background);old=SelectObject(dc,pen);MoveToEx(dc,center-16,y,nullptr);LineTo(dc,center+16,y);SelectObject(dc,old);DeleteObject(pen);
         }else{
             Gdiplus::Graphics g(dc);g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);

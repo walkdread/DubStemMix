@@ -21,7 +21,7 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.7.1*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.8.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   if ([WindowCapture]::GetDlgItem($app.MainWindowHandle,900) -eq [IntPtr]::Zero) { throw 'Integrated library missing' }
   $h = $app.MainWindowHandle
   function Read-Probe([int]$id) { return [WindowCapture]::SendMessage($h,[uint32](0x8000+$id),[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() }
@@ -181,6 +181,53 @@ try {
   for ($i=0; $i -lt 150 -and (Read-Probe 32) -ne 0; $i++) { Start-Sleep -Milliseconds 100 }
   if ((Read-Probe 32) -ne 0) { throw 'Return to stems failed' }
   Write-Output 'PASS bands decoder, playback, Tap Echo, divisions, duplex capture, source switches and session mode'
+  # Full SEND ALL must toggle the layer without moving Master or any effect value.
+  $masterBefore = Read-Probe 37
+  foreach ($cc in @((16..31) + (46..62))) {
+    [void][WindowCapture]::PostMessage($h,0x8001,[IntPtr](0xb0 -bor ($cc -shl 8) -bor (127 -shl 16)),[IntPtr]::Zero)
+  }
+  Start-Sleep -Milliseconds 150
+  if ((Read-Probe 35) -ne 1 -or (Read-Probe 37) -ne $masterBefore) { throw 'SEND ALL did not isolate snapshot or enable SHIFT' }
+  $holdBefore = Read-Probe 36
+  [void][WindowCapture]::PostMessage($h,0x8001,[IntPtr](0xb0 -bor (54 -shl 8)),[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 80
+  [void][WindowCapture]::PostMessage($h,0x8001,[IntPtr](0xb0 -bor (54 -shl 8) -bor (127 -shl 16)),[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 80
+  if ((Read-Probe 36) -ne 127) { throw 'SHIFT knob pickup failed' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]732,[IntPtr]::Zero)
+  if ((Read-Probe 35) -ne 0) { throw 'On-screen SHIFT did not disable layer' }
+  # Drag active track below two entries; playback must retain its identity.
+  [void][WindowCapture]::SendMessage($list,0x197,[IntPtr]::Zero,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($list,0x186,[IntPtr]::Zero,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]801,[IntPtr]::Zero)
+  for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]10,[IntPtr]::Zero)
+  $rowHeight = [WindowCapture]::SendMessage($list,0x1a1,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32()
+  $fromPoint = [IntPtr]((10 -shl 16) -bor 30)
+  $toPoint = [IntPtr]((([int]($rowHeight*2.8)) -shl 16) -bor 30)
+  [void][WindowCapture]::SendMessage($list,0x201,[IntPtr]1,$fromPoint)
+  [void][WindowCapture]::SendMessage($list,0x200,[IntPtr]1,$toPoint)
+  [void][WindowCapture]::SendMessage($list,0x202,[IntPtr]::Zero,$toPoint)
+  if ((Read-Probe 24) -ne 3 -or (Read-Probe 25) -ne 1) { throw 'Drag changed active song or failed to reorder' }
+  # Seek close to EOF via the actual waveform, then observe next in reordered queue.
+  $client = New-Object WindowCapture+RECT
+  [void][WindowCapture]::GetClientRect($h,[ref]$client)
+  $x = [int](1244*$client.Right/1280); $y = [int](88*$client.Bottom/800)
+  $point = [IntPtr](($y -shl 16) -bor $x)
+  [void][WindowCapture]::SendMessage($h,0x201,[IntPtr]1,$point)
+  [void][WindowCapture]::SendMessage($h,0x202,[IntPtr]::Zero,$point)
+  for ($i=0; $i -lt 60 -and (Read-Probe 24) -ne 4; $i++) { Start-Sleep -Milliseconds 100 }
+  if ((Read-Probe 24) -ne 4 -or (Read-Probe 25) -ne 1) { throw 'Automatic next failed in reordered library' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($list,0x186,[IntPtr]7,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]801,[IntPtr]::Zero)
+  for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 8; $i++) { Start-Sleep -Milliseconds 100 }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]10,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x201,[IntPtr]1,$point)
+  [void][WindowCapture]::SendMessage($h,0x202,[IntPtr]::Zero,$point)
+  Start-Sleep -Milliseconds 800
+  if ((Read-Probe 24) -ne 8 -or (Read-Probe 25) -ne 0) { throw 'Final track did not stop at queue end' }
+  Write-Output 'PASS SEND ALL snapshot isolation, SHIFT pickup, mouse reorder, autoplay and queue end'
   [void][WindowCapture]::PostMessage($h,0x111,[IntPtr]860,[IntPtr]::Zero)
   Start-Sleep -Milliseconds 400
   $notice = [WindowCapture]::FindWindow('DubNotice',$null)

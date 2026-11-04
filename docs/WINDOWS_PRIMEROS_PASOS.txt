@@ -1,8 +1,30 @@
-DUB MACHINE MIX — WINDOWS 0.7.1
+DUB MACHINE MIX — WINDOWS 0.8.0
 
 Extrae TODO el ZIP. Abre DubMachineMix.exe. Conserva DLLs y carpeta fonts.
 Antes llamado DubStemMix. Conserva su carpeta de datos para recuperar tus modelos,
 stems y preferencias. No necesitas volver a analizar canciones preparadas.
+
+NOVEDADES 0.8.0
+- Al finalizar una pista se reproduce la siguiente preparada segun el orden de la
+  biblioteca. Se detiene al llegar al final. No realiza mezcla continua sin pausa.
+- Arrastra canciones con el raton; la linea amarilla indica donde se insertan.
+  La cancion actual sigue sonando y el orden se guarda en la biblioteca.
+- Menus oscuros, degradado suave en la biblioteca, botones redondeados, faders
+  por color y nuevo icono verde/amarillo/naranja.
+- SEND ALL alterna SHIFT mediante el banco completo de 33 CC del mapa MIDImix
+  de fabrica. Se descarta el banco completo para no saltar a valores fisicos.
+  No funciona como tecla mantenida: pulsa otra vez para salir. Los movimientos
+  MIDI se agrupan durante 40 ms. Si tu mapa/dispositivo no envia ese banco,
+  utiliza SHIFT / FX en pantalla. La deteccion requiere validacion fisica.
+- SHIFT: perillas del canal 7 de arriba abajo = nivel HOLD (0..200%), factor de
+  velocidad (x0.5..x4), intensidad CRASH (0..200%). Canal 8 = volumen CRASH
+  (0..200%), freno y recuperacion Tape Stop (0.05..5 s cada uno).
+- En SHIFT las tres perillas del canal 1 controlan Echo Return, filtro y
+  saturacion. Faders mantienen su funcion. Las perillas usan captura suave:
+  mueve hasta cruzar el valor de pantalla para tomar control sin saltos.
+- CRASH tiene su propio resorte y volumen; no depende del retorno Reverb ni
+  cambia Plate/Spring. Su volumen sigue pasando por Master y el limitador.
+- Los seis ajustes de performance se conservan al cerrar el programa.
 
 CORRECCION 0.7.1
 - Apertura de bibliotecas con saltos de linea Windows (CRLF) o Unix (LF).
@@ -18,7 +40,7 @@ NOVEDADES 0.7
 - Echo Dub sustituye Phaser/Flanger: tiempo, feedback, filtro, saturacion y retorno.
   La tercera perilla de cada canal envia al Echo Dub. Delay y Reverb son independientes.
 - TAP ECHO: pulsa al ritmo varias veces. Division 1/4, 1/8 o 1/8 con puntillo.
-  Nota MIDI 23 (SOLO + MUTE 8 en el mapa de fabrica) = Tap. SEND ALL no se utiliza.
+  Nota MIDI 23 (SOLO + MUTE 8 en el mapa de fabrica) = Tap. SEND ALL alterna SHIFT (ver arriba).
   Las perillas MIDImix 8 superior/central ajustan tiempo/feedback del Echo Dub.
 - Preferencias: entrada, salida y buffer 256/512/1024 muestras. Empieza con 512.
 - Bibliotecas .dubset conservan el modo; las antiguas siguen abriendo.

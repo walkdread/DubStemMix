@@ -28,6 +28,10 @@ struct Strip {
 class Mixer {
     std::array<DubEffect*, buses> fx{};
     DubEffect* limiter = nullptr;
+    DubEffect* crash = nullptr;
+    float smoothCrash=0;
+    unsigned crashQuiet=0; bool crashAwake=false;
+    std::atomic<bool> crashTrigger{false};
     std::array<DubEffect*, 2> instruments{};
     float voice[2][quantum]{};
     uint64_t cursor = 0;
@@ -48,25 +52,30 @@ public:
     std::atomic<float> master{0.5f}, peak{0};
     std::array<std::atomic<float>,6> channelPeaks{};
     std::array<std::atomic<float>,3> returnPeaks{};
+    std::atomic<float> crashLevel{1.0f};
+    std::atomic<bool> ended{false};
+    void triggerCrash() noexcept { crashTrigger=true; }
+    void setCrashIntensity(float v) noexcept { dub_effect_set(crash,DUB_SPRING_INTENSITY,v); }
     std::atomic<bool> playing{false};
     std::atomic<uint64_t> position{0};
     Mixer() {
         fx[0] = dub_effect_create(DUB_EFFECT_DELAY);
         fx[1] = dub_effect_create(DUB_EFFECT_REVERB_BUS);
         fx[2] = nullptr; // EchoDub owns the third bus.
+        crash = dub_effect_create(DUB_EFFECT_SPRING);
         limiter = dub_effect_create(DUB_EFFECT_LIMITER);
         instruments[0] = dub_effect_create(DUB_EFFECT_SIREN);
         instruments[1] = dub_effect_create(DUB_EFFECT_SYNDRUM);
-        if (!fx[0] || !fx[1] || !limiter || !instruments[0] || !instruments[1]) {
+        if (!crash || !fx[0] || !fx[1] || !limiter || !instruments[0] || !instruments[1]) {
             for (auto* e : fx) dub_effect_destroy(e);
-            dub_effect_destroy(limiter);
+            dub_effect_destroy(limiter); dub_effect_destroy(crash);
             for (auto* e : instruments) dub_effect_destroy(e);
             throw std::runtime_error("No hay memoria para los efectos");
         }
         strip[4].send[0]=0.5f; strip[5].send[0]=0.5f;
         reset();
     }
-    ~Mixer() { for (auto* e : fx) dub_effect_destroy(e); dub_effect_destroy(limiter); for (auto* e : instruments) dub_effect_destroy(e); }
+    ~Mixer() { dub_effect_destroy(crash); for (auto* e : fx) dub_effect_destroy(e); dub_effect_destroy(limiter); for (auto* e : instruments) dub_effect_destroy(e); }
     Mixer(const Mixer&) = delete;
     Mixer& operator=(const Mixer&) = delete;
     void setInstrument(int index, int parameter, float value) noexcept {
@@ -80,7 +89,8 @@ public:
         setInstrument(1,DUB_SYNDRUM_ROLLING,0); setInstrument(1,DUB_SYNDRUM_HIT,0);
     }
     void panic() noexcept {
-        releaseInstruments();echo.panic();
+        releaseInstruments();echo.panic();crashTrigger=false;
+        dub_effect_set(crash,DUB_EFFECT_CLEAR,1);
         for (auto* e : instruments) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         for (auto* e : fx) if(e) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
@@ -88,7 +98,8 @@ public:
     bool isInstrument(int t) const { return t>=4 && t<6 && (liveInput || strip[t].samples.empty()); }
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
-        crossover.reset();echo.reset();inputPeak=0;
+        crossover.reset();echo.reset();inputPeak=0;ended=false;
+        dub_effect_prepare(crash,rate);crashTrigger=false;crashAwake=false;crashQuiet=0;smoothCrash=0;
         releaseInstruments();
         for (auto* e : instruments) dub_effect_prepare(e,rate);
         playing.store(false); seekTarget.store(UINT64_MAX);seekFade=0;lastOutput[0]=lastOutput[1]=0; cursor = 0; position.store(0); peak.store(0);
@@ -98,7 +109,7 @@ public:
         for (auto* e : fx) if(e) dub_effect_prepare(e, rate);
         dub_effect_prepare(limiter, rate);
     }
-    void seek(uint64_t frame) noexcept { seekTarget.store(std::min<uint64_t>(frame,totalFrames()),std::memory_order_release); }
+    void seek(uint64_t frame) noexcept { ended=false; seekTarget.store(std::min<uint64_t>(frame,totalFrames()),std::memory_order_release); }
     size_t totalFrames() const {
         size_t n = 0; for (const auto& s : strip) n = std::max(n, s.samples.size()/2); return n;
     }
@@ -153,6 +164,15 @@ public:
                     dry[0][i] += wet[0][i]*smoothReturn[b]; dry[1][i] += wet[1][i]*smoothReturn[b];
                 }
             }
+            if(crashTrigger.exchange(false)){dub_effect_set(crash,DUB_SPRING_CRASH,1);crashAwake=true;crashQuiet=0;}
+            if(crashAwake){
+                for(auto& c:voice)std::fill_n(c,n,0.f);
+                dub_effect_process(crash,voice[0],voice[1],wet[0],wet[1],int(n));
+                float cp=0;const float target=crashLevel.load();
+                for(unsigned i=0;i<n;++i){smoothCrash+=(target-smoothCrash)/480.f;
+                    for(int c=0;c<2;++c){cp=std::max(cp,std::abs(wet[c][i]));dry[c][i]+=wet[c][i]*smoothCrash;}}
+                crashQuiet=cp<0.000001f?crashQuiet+n:0;if(crashQuiet>rate)crashAwake=false;
+            }
             const float gain = master.load();
             for (unsigned i = 0; i < n; ++i) {
                 smoothMaster += (gain-smoothMaster)*(1.0f/480.0f);
@@ -167,7 +187,7 @@ public:
                 if(c==1 && seekFade)--seekFade;
                 blockPeak = std::max(blockPeak, std::abs(sample));
             }
-            if (run && !liveInput) { cursor += n; if (cursor >= totalFrames()) playing.store(false); }
+            if (run && !liveInput) { cursor += n; if (totalFrames() && cursor >= totalFrames()) { cursor=totalFrames();playing.store(false);ended.store(true,std::memory_order_release); } }
         }
         for(int t=0;t<6;++t)channelPeaks[t].store(channelMax[t],std::memory_order_relaxed);
         for(int b=0;b<3;++b)returnPeaks[b].store(returnMax[b],std::memory_order_relaxed);
