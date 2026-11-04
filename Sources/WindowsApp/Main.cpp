@@ -942,7 +942,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
         if(item->CtlType==ODT_MENU){auto label=reinterpret_cast<std::wstring*>(item->itemData);if(!label)return FALSE;
             bool bar=!label->empty()&&(*label)[0]==L'@';auto text=bar?label->substr(1):*label;
             auto dc=GetDC(h);auto old=SelectObject(dc,font?font:GetStockObject(DEFAULT_GUI_FONT));SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),int(text.size()),&size);SelectObject(dc,old);ReleaseDC(h,dc);
-            item->itemWidth=size.cx+(bar?24:64);item->itemHeight=text.empty()?8:28;return TRUE;}
+            item->itemWidth=size.cx+(bar?40:64);item->itemHeight=text.empty()?8:28;return TRUE;}
 if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item->CtlType==ODT_MENU){
             auto label=reinterpret_cast<std::wstring*>(item->itemData);if(!label)return FALSE;

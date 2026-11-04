@@ -188,6 +188,13 @@ try {
   }
   Start-Sleep -Milliseconds 150
   if ((Read-Probe 35) -ne 1 -or (Read-Probe 37) -ne $masterBefore) { throw 'SEND ALL did not isolate snapshot or enable SHIFT' }
+  $sr = New-Object WindowCapture+RECT
+  [void][WindowCapture]::GetWindowRect($h,[ref]$sr)
+  $sb = New-Object System.Drawing.Bitmap(($sr.Right-$sr.Left),($sr.Bottom-$sr.Top))
+  $sg = [System.Drawing.Graphics]::FromImage($sb); $sdc = $sg.GetHdc()
+  try { [void][WindowCapture]::PrintWindow($h,$sdc,2) } finally { $sg.ReleaseHdc($sdc) }
+  $sb.Save(($Output -replace '.png$','-shift.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+  $sg.Dispose();$sb.Dispose()
   $holdBefore = Read-Probe 36
   [void][WindowCapture]::PostMessage($h,0x8001,[IntPtr](0xb0 -bor (54 -shl 8)),[IntPtr]::Zero)
   Start-Sleep -Milliseconds 80
