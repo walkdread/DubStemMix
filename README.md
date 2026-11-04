@@ -1,3 +1,27 @@
+# Dub Machine Mix — Windows 0.7
+
+The Windows application is now **Dub Machine Mix** (formerly DubStemMix).
+Run `DubMachineMix.exe` from the complete portable package.
+
+Version 0.7 adds file-based four-band playback (80/250/3000 Hz compensated LR4
+crossovers), WASAPI duplex external input, a dedicated third-bus Echo Dub with
+Tap tempo, and a unified library for Stems/Bands. Bands decodes one stereo buffer
+instead of four stems; selected/next files reuse the bounded RAM cache. The old
+config/data directory is intentionally retained. Session v2 stores the mode and
+reads legacy v1 sessions. New sessions require this version.
+
+External input is bands-only. Source changes pause audio; device/buffer changes
+require pause. Hardware loopback routing and actual latency must be checked with
+the user's interface. Files remain limited to ten minutes. GPU separation remains
+experimental. See `docs/WINDOWS_PRIMEROS_PASOS.txt` for the Spanish user guide.
+
+Native DSP/core tests cover summed crossover response, live capture/pause,
+nonfinite inputs, echo timing/stability, Tap and old/new sessions. Windows GUI
+checks exercise file bands, duplex null backend, Tap, mode/source switching and
+legacy features; they do not certify physical hardware.
+
+---
+
 > **Windows alpha 0.6:** precarga en RAM limitada, medidores por canal, bibliotecas numeradas con duracion y sesiones .dubset.
 > Onda navegable, Siguiente, REC ARM 1–4 para Solo y Espacio para Play/Pausa.
 > Separacion local Rapido/Calidad, cache de reproduccion y analisis en segundo plano.

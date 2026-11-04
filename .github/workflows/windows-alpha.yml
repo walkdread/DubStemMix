@@ -18,14 +18,14 @@ jobs:
       - name: Test DSP and mixer
         run: ctest --test-dir build-windows -C Release --output-on-failure
       - name: Package portable application
-        run: cmake --install build-windows --config Release --prefix package/DubStemMix-Windows-alpha
+        run: cmake --install build-windows --config Release --prefix package/DubMachineMix-Windows-alpha
       - name: Launch and capture Windows console
         shell: pwsh
-        run: ./tools/windows-preview.ps1 -Executable "$pwd/package/DubStemMix-Windows-alpha/DubStemMix.exe" -Output "$pwd/windows-preview.png"
+        run: ./tools/windows-preview.ps1 -Executable "$pwd/package/DubMachineMix-Windows-alpha/DubMachineMix.exe" -Output "$pwd/windows-preview.png"
       - name: Validate real stem separation (synthetic audio)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "$pwd/package/DubStemMix-Windows-alpha/DubStemMix.exe" -ArgumentList '--check-separation' -Wait -PassThru -RedirectStandardError "$pwd/separation-test.log"
+          $p = Start-Process -FilePath "$pwd/package/DubMachineMix-Windows-alpha/DubMachineMix.exe" -ArgumentList '--check-separation' -Wait -PassThru -RedirectStandardError "$pwd/separation-test.log"
           Get-Content "$pwd/separation-test.log"
           if ($p.ExitCode -ne 0) { throw "Separation integration failed: $($p.ExitCode)" }
       - name: Upload verification
@@ -39,7 +39,7 @@ jobs:
       - name: Upload downloadable application
         uses: actions/upload-artifact@v4
         with:
-          name: DubStemMix-Windows-x64-alpha
-          path: package/DubStemMix-Windows-alpha/
+          name: DubMachineMix-Windows-x64-alpha
+          path: package/DubMachineMix-Windows-alpha/
           if-no-files-found: error
           retention-days: 30

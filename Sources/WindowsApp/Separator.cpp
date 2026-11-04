@@ -176,6 +176,9 @@ static std::array<std::vector<float>,4> loadPreparedRaw(const fs::path& folder,s
     for(auto& stem:result)if(stem.size()!=result[0].size())throw std::runtime_error("Stems desalineados");
     return result;
 }
+std::array<std::vector<float>,4> loadBands(const fs::path& file,std::atomic<bool>& cancel,std::vector<float>* waveform){
+    std::array<std::vector<float>,4> result;result[0]=decode(file,48000,cancel);if(waveform)*waveform=makeWaveform(result);return result;
+}
 std::array<std::vector<float>,4> loadPrepared(const fs::path& folder,std::atomic<bool>& cancel,std::vector<float>* waveform){
     // Source identity includes the verified manifest and all four WAV sizes/timestamps.
     auto stamp=sha256(folder/L"complete.txt",cancel);
@@ -203,9 +206,10 @@ double audioDuration(const fs::path& file){
     return result==MA_SUCCESS && frames?double(frames)/48000.0:-2;
 }
 void createPreviewSong(const fs::path& folder,int variant){
-    fs::create_directories(folder);std::atomic<bool> cancel{false};std::ofstream manifest(folder/L"complete.txt");
+    std::vector<float> original(44100*2*8,0);fs::create_directories(folder);std::atomic<bool> cancel{false};std::ofstream manifest(folder/L"complete.txt");
     for(int t=0;t<4;++t){std::vector<float> samples(44100*2*8);for(size_t f=0;f<samples.size()/2;++f){float v=0.1f*std::sin(float(f)*(0.01f+0.003f*t+0.001f*variant))*(0.2f+0.8f*std::abs(std::sin(float(f)*0.00003f)));samples[f*2]=samples[f*2+1]=v;}
-        auto file=folder/(std::wstring(modelNames[t])+L".wav");writeWave(file,samples);manifest<<sha256(file,cancel)<<"\n";}
+        for(size_t i=0;i<samples.size();++i)original[i]+=samples[i];auto file=folder/(std::wstring(modelNames[t])+L".wav");writeWave(file,samples);manifest<<sha256(file,cancel)<<"\n";}
+    writeWave(folder/(variant?L"Cancion "+std::to_wstring(variant+1)+L".wav":L"Prueba de reproduccion.wav"),original);
 }
 int separationSelfTest() {
     try {

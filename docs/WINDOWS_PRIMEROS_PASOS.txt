@@ -1,3 +1,44 @@
+DUB MACHINE MIX — WINDOWS 0.7.0
+
+Extrae TODO el ZIP. Abre DubMachineMix.exe. Conserva DLLs y carpeta fonts.
+Antes llamado DubStemMix. Conserva su carpeta de datos para recuperar tus modelos,
+stems y preferencias. No necesitas volver a analizar canciones preparadas.
+
+NOVEDADES 0.7
+- STEMS: bateria, bajo, otros y voz; separacion local previa.
+- BANDAS: sub, bajos, medios, agudos. Cruces fijos 80, 250 y 3000 Hz.
+  Agregar canciones y Cargar cancion funcionan sin analisis de IA ni Internet.
+  La primera carga decodifica el archivo. La siguiente cancion se precarga en RAM.
+- ARCHIVO / ENTRADA USB: la entrada USB funciona con bandas en vivo.
+  El cambio de fuente pausa el audio; pulsa PLAY para escuchar.
+- Echo Dub sustituye Phaser/Flanger: tiempo, feedback, filtro, saturacion y retorno.
+  La tercera perilla de cada canal envia al Echo Dub. Delay y Reverb son independientes.
+- TAP ECHO: pulsa al ritmo varias veces. Division 1/4, 1/8 o 1/8 con puntillo.
+  Nota MIDI 23 (SOLO + MUTE 8 en el mapa de fabrica) = Tap. SEND ALL no se utiliza.
+  Las perillas MIDImix 8 superior/central ajustan tiempo/feedback del Echo Dub.
+- Preferencias: entrada, salida y buffer 256/512/1024 muestras. Empieza con 512.
+- Bibliotecas .dubset conservan el modo; las antiguas siguen abriendo.
+  Las sesiones nuevas no son compatibles con versiones anteriores del programa.
+
+XENYX 302 USB
+Selecciona USB Audio CODEC como entrada/salida. La interfaz transmite una mezcla
+estereo, no cada entrada por separado. Conecta la fuente a 2-TRACK y revisa los
+selectores fisicos. No devuelvas USB PLAY al MAIN MIX que vuelve al computador:
+puede crear un bucle. La guia del fabricante usa retorno USB a PHONES durante
+captura. Para oir solo el sonido procesado puede hacer falta ajustar la ruta o
+utilizar otra salida. Verifica con volumen bajo antes de una presentacion.
+
+LIMITES
+Archivos hasta 10 minutos. Hasta 1000 entradas por biblioteca. Cache RAM hasta
+1 GiB aparte de cancion activa, buffers y analisis. Bandas usa una sola copia
+estereo: unas cuatro veces menos datos que los cuatro stems del mismo tema.
+La entrada USB no separa instrumentos con IA. Los cruces de bandas son fijos.
+El modo Bandas no requiere GPU. La separacion GPU sigue siendo experimental.
+El rendimiento y retardo fisico dependen de la interfaz; las pruebas automatizadas
+usan un dispositivo simulado, no prueban tu Xenyx ni tu controlador fisico.
+
+INSTRUCCIONES ANTERIORES (funciones conservadas)
+
 DubStemMix para Windows x64 — alpha 0.6.0
 
 NOVEDADES 0.6.0
@@ -43,7 +84,7 @@ FUNCIONES GENERALES
 
 ABRIR
 1. Extrae TODO el ZIP en una carpeta nueva. Conserva la alpha anterior.
-2. Abre DubStemMix.exe desde esa carpeta; deja onnxruntime.dll y las demas DLL
+2. Abre DubMachineMix.exe desde esa carpeta; deja onnxruntime.dll y las demas DLL
    a su lado. No copies solamente el ejecutable.
 3. En Preferencias > Salida de audio selecciona USB Audio CODEC y conecta MIDImix. Baja el volumen de escucha.
 

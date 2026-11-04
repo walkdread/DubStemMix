@@ -114,6 +114,31 @@ int main() {
         {std::ofstream bad(file);bad<<"DubStemMix Library 1\n2\n";}bool rejected=false;
         try{dubwin::readSession(file);}catch(const std::exception&){rejected=true;}CHECK(rejected);std::filesystem::remove(file);
     }
+    // LR4 reconstruction across audible spectrum and dominance within each band.
+    for(double hz:{30.,80.,150.,250.,1000.,3000.,10000.,18000.}){
+        dubwin::Bands bands;double energy=0,input=0,bandEnergy[4]{};
+        for(int i=0;i<96000;++i){float x=float(.2*std::sin(6.283185307179586*hz*i/48000));auto b=bands.process(x,0);double sum=0;for(int t=0;t<4;++t){sum+=b[t];if(i>48000)bandEnergy[t]+=b[t]*b[t];}
+            if(i>48000){energy+=sum*sum;input+=x*x;}}
+        CHECK(std::abs(energy/input-1)<.003);
+        int dominant=hz<80?0:hz<250?1:hz<3000?2:3;
+        if(hz==30||hz==150||hz==1000||hz==10000)for(int t=0;t<4;++t)if(t!=dominant)CHECK(bandEnergy[dominant]>bandEnergy[t]*4);
+    }
+    // Live input has no file/EOF dependency, sanitizes bad input and responds to pause.
+    {dubwin::Mixer live;live.bandsMode=live.liveInput=true;live.playing=true;float capture[1024];for(int i=0;i<1024;++i)capture[i]=.2f;
+        double energy=0;for(int b=0;b<20;++b){live.render(out,512,capture);for(float x:out){CHECK(std::isfinite(x));energy+=std::abs(x);}}
+        CHECK(energy>1&&live.playing&&live.position==0);capture[0]=NAN;live.render(out,512,capture);for(float x:out)CHECK(std::isfinite(x));
+        live.playing=false;for(int b=0;b<100;++b)live.render(out,512,capture);for(float x:out)CHECK(std::abs(x)<.0001f);
+        live.reset();live.render(out,512,nullptr);for(float x:out)CHECK(x==0);
+    }
+    // Echo impulse appears at requested time, is stereo independent and clears on panic.
+    {dubwin::EchoDub echo;echo.seconds=.1f;echo.feedback=0;echo.reset();float l[1],r[1]{},a[1],b[1];double early=0,late=0;
+        for(int i=0;i<10000;++i){l[0]=i==0?.5f:0;echo.process(l,r,a,b,1);CHECK(std::abs(b[0])<1e-7);if(i<4800)early+=std::abs(a[0]);else late+=std::abs(a[0]);}
+        CHECK(early<.0001&&late>.01);echo.panic();echo.process(r,r,a,b,1);CHECK(a[0]==0&&b[0]==0);
+        echo.feedback=1.05f;echo.reset();for(int i=0;i<200000;++i){l[0]=i%100==0?10:0;echo.process(l,l,a,b,1);CHECK(std::isfinite(a[0])&&std::abs(a[0])<=1);}
+    }
+    {dubwin::TapTempo tap;CHECK(!tap.tap(1000));CHECK(tap.tap(1500));CHECK(tap.tap(2000));CHECK(std::abs(tap.bpm-120)<.01);CHECK(std::abs(tap.seconds(2)-.375)<.001);CHECK(!tap.tap(2050));CHECK(!tap.tap(6000));}
+    {auto path=std::filesystem::temp_directory_path()/"dmm-bands.dubset";bool bands=false;dubwin::writeSession(path,{},true);dubwin::readSession(path,&bands);CHECK(bands);
+        {std::ofstream old(path);old<<"DubStemMix Library 1\n0\n";}dubwin::readSession(path,&bands);CHECK(!bands);std::filesystem::remove(path);}
     // Weighted overlap must reconstruct a constant without gaps, including the padded tail.
     const size_t total=dubwin::modelFrames+dubwin::stride+37;
     dubwin::Accumulator accumulation(total);std::vector<float> ones(dubwin::modelFrames,1);

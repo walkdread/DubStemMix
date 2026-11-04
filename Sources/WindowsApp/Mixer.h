@@ -1,5 +1,7 @@
 #pragma once
 #include "DubDSP.h"
+#include "Bands.h"
+#include "EchoDub.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -35,7 +37,12 @@ class Mixer {
     float smoothMaster = 0;
     std::array<float, buses> smoothReturn{};
     float dry[2][quantum]{}, inputs[buses][2][quantum]{}, wet[2][quantum]{};
+Bands crossover;
+    float bandAudio[4][2][quantum]{};
 public:
+    EchoDub echo;
+    bool bandsMode=false,liveInput=false; // UI changes only while device is stopped.
+    std::atomic<float> inputGain{1},inputPeak{0};
     std::array<Strip, tracks> strip;
     std::array<std::atomic<float>, buses> returns{{0.5f, 0.5f, 0.5f}};
     std::atomic<float> master{0.5f}, peak{0};
@@ -46,11 +53,11 @@ public:
     Mixer() {
         fx[0] = dub_effect_create(DUB_EFFECT_DELAY);
         fx[1] = dub_effect_create(DUB_EFFECT_REVERB_BUS);
-        fx[2] = dub_effect_create(DUB_EFFECT_BUS3);
+        fx[2] = nullptr; // EchoDub owns the third bus.
         limiter = dub_effect_create(DUB_EFFECT_LIMITER);
         instruments[0] = dub_effect_create(DUB_EFFECT_SIREN);
         instruments[1] = dub_effect_create(DUB_EFFECT_SYNDRUM);
-        if (!fx[0] || !fx[1] || !fx[2] || !limiter || !instruments[0] || !instruments[1]) {
+        if (!fx[0] || !fx[1] || !limiter || !instruments[0] || !instruments[1]) {
             for (auto* e : fx) dub_effect_destroy(e);
             dub_effect_destroy(limiter);
             for (auto* e : instruments) dub_effect_destroy(e);
@@ -66,28 +73,29 @@ public:
         if (index>=0 && index<2) dub_effect_set(instruments[index],parameter,value);
     }
     void setEffect(int bus, int parameter, float value) noexcept {
-        if (bus>=0 && bus<buses) dub_effect_set(fx[bus],parameter,value);
+        if (bus>=0 && bus<buses && fx[bus]) dub_effect_set(fx[bus],parameter,value);
     }
     void releaseInstruments() noexcept {
         setInstrument(0,DUB_SIREN_GATE,0); setInstrument(0,DUB_SIREN_RISE,0);
         setInstrument(1,DUB_SYNDRUM_ROLLING,0); setInstrument(1,DUB_SYNDRUM_HIT,0);
     }
     void panic() noexcept {
-        releaseInstruments();
+        releaseInstruments();echo.panic();
         for (auto* e : instruments) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
-        for (auto* e : fx) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
+        for (auto* e : fx) if(e) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
     }
     bool isInstrument(int t) const { return t>=4 && t<6 && strip[t].samples.empty(); }
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
+        crossover.reset();echo.reset();inputPeak=0;
         releaseInstruments();
         for (auto* e : instruments) dub_effect_prepare(e,rate);
         playing.store(false); seekTarget.store(UINT64_MAX);seekFade=0;lastOutput[0]=lastOutput[1]=0; cursor = 0; position.store(0); peak.store(0);
         smoothMaster = 0; smoothReturn.fill(0);
         for(auto& p:channelPeaks)p=0;for(auto& p:returnPeaks)p=0;
         for (auto& s : strip) { s.smoothLevel = 0; s.smoothSend.fill(0); }
-        for (auto* e : fx) dub_effect_prepare(e, rate);
+        for (auto* e : fx) if(e) dub_effect_prepare(e, rate);
         dub_effect_prepare(limiter, rate);
     }
     void seek(uint64_t frame) noexcept { seekTarget.store(std::min<uint64_t>(frame,totalFrames()),std::memory_order_release); }
@@ -95,17 +103,22 @@ public:
         size_t n = 0; for (const auto& s : strip) n = std::max(n, s.samples.size()/2); return n;
     }
     // All arrays are allocated before audio starts. No I/O, allocation or mutex here.
-    void render(float* output, unsigned frames) noexcept {
-        float blockPeak = 0;std::array<float,6> channelMax{};std::array<float,3> returnMax{};
+    void render(float* output, unsigned frames,const float* capture=nullptr) noexcept {
+        float blockPeak = 0,capturePeak=0;std::array<float,6> channelMax{};std::array<float,3> returnMax{};
         for (unsigned offset = 0; offset < frames; offset += quantum) {
             const auto targetPosition=seekTarget.exchange(UINT64_MAX,std::memory_order_acquire);
-            if(targetPosition!=UINT64_MAX){cursor=std::min<uint64_t>(targetPosition,totalFrames());seekFade=128;seekFrom[0]=lastOutput[0];seekFrom[1]=lastOutput[1];}
+            if(targetPosition!=UINT64_MAX){crossover.reset();cursor=std::min<uint64_t>(targetPosition,totalFrames());seekFade=128;seekFrom[0]=lastOutput[0];seekFrom[1]=lastOutput[1];}
             const unsigned n = std::min(quantum, frames - offset);
             for (auto& c : dry) std::fill_n(c, n, 0.0f);
             for (auto& b : inputs) for (auto& c : b) std::fill_n(c, n, 0.0f);
             bool anySolo = false;
             for (auto& s : strip) anySolo |= s.solo.load(std::memory_order_relaxed);
             const bool run = playing.load(std::memory_order_relaxed);
+            if(bandsMode){float gain=inputGain.load();for(unsigned i=0;i<n;++i)for(int c=0;c<2;++c){
+                size_t p=size_t(cursor+i)*2+c;float x=liveInput?(capture?capture[(offset+i)*2+c]*gain:0):(p<strip[0].samples.size()?strip[0].samples[p]:0);
+                if(!std::isfinite(x))x=0;capturePeak=std::max(capturePeak,std::abs(x));auto parts=crossover.process(run?x:0,c);
+                for(int t=0;t<4;++t)bandAudio[t][c][i]=parts[t];
+            }}
             for (int t=0;t<tracks;++t) {
                 auto& s=strip[t];
                 const bool instrument=isInstrument(t);
@@ -120,8 +133,8 @@ public:
                     s.smoothLevel += (target - s.smoothLevel) * (1.0f/480.0f);
                     const uint64_t p = (cursor+i)*2;
                     const bool valid = run && p+1 < s.samples.size();
-                    const float l = (instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0))*s.smoothLevel;
-                    const float r = (instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0))*s.smoothLevel;
+                    const float l = (bandsMode&&t<4?bandAudio[t][0][i]:(instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0)))*s.smoothLevel;
+                    const float r = (bandsMode&&t<4?bandAudio[t][1][i]:(instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0)))*s.smoothLevel;
                     channelMax[t]=std::max(channelMax[t],std::max(std::abs(l),std::abs(r)));
                     dry[0][i] += l; dry[1][i] += r;
                     for (int b = 0; b < buses; ++b) {
@@ -132,7 +145,7 @@ public:
                 }
             }
             for (int b = 0; b < buses; ++b) {
-                dub_effect_process(fx[b], inputs[b][0], inputs[b][1], wet[0], wet[1], static_cast<int>(n));
+                if(b==2)echo.process(inputs[b][0],inputs[b][1],wet[0],wet[1],n);else dub_effect_process(fx[b], inputs[b][0], inputs[b][1], wet[0], wet[1], static_cast<int>(n));
                 const float target = returns[b].load();
                 for (unsigned i = 0; i < n; ++i) {
                     smoothReturn[b] += (target-smoothReturn[b])*(1.0f/480.0f);
@@ -154,11 +167,11 @@ public:
                 if(c==1 && seekFade)--seekFade;
                 blockPeak = std::max(blockPeak, std::abs(sample));
             }
-            if (run) { cursor += n; if (cursor >= totalFrames()) playing.store(false); }
+            if (run && !liveInput) { cursor += n; if (cursor >= totalFrames()) playing.store(false); }
         }
         for(int t=0;t<6;++t)channelPeaks[t].store(channelMax[t],std::memory_order_relaxed);
         for(int b=0;b<3;++b)returnPeaks[b].store(returnMax[b],std::memory_order_relaxed);
-        position.store(cursor, std::memory_order_relaxed); peak.store(blockPeak, std::memory_order_relaxed);
+        inputPeak.store(capturePeak);position.store(cursor, std::memory_order_relaxed); peak.store(blockPeak, std::memory_order_relaxed);
     }
 };
 // Soft takeover: first MIDI movement only takes over when it reaches/crosses the GUI value.

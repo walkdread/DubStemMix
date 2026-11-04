@@ -14,9 +14,11 @@
 #endif
 namespace dubwin {
 struct SessionEntry {std::filesystem::path source,cache;bool fast=true;double duration=-1;};
-inline std::vector<SessionEntry> readSession(const std::filesystem::path& file){
+inline std::vector<SessionEntry> readSession(const std::filesystem::path& file,bool* bands=nullptr){
     std::ifstream in(file,std::ios::binary);std::string magic;std::getline(in,magic);
-    if(magic!="DubStemMix Library 1")throw std::runtime_error("No es una biblioteca DubStemMix compatible");
+    bool v2=magic=="Dub Machine Mix Library 2";if(bands)*bands=false;
+    if(!v2&&magic!="DubStemMix Library 1")throw std::runtime_error("No es una biblioteca DubStemMix compatible");
+    if(v2){int mode=0;if(!(in>>mode)||(mode!=0&&mode!=1))throw std::runtime_error("Modo invalido");if(bands)*bands=mode!=0;}
     size_t count=0;if(!(in>>count)||count>1000)throw std::runtime_error("Numero de canciones invalido");
     std::vector<SessionEntry> result;result.reserve(count);
     for(size_t i=0;i<count;++i){std::string source,cache;int fast=0;double duration=0;
@@ -28,10 +30,10 @@ inline std::vector<SessionEntry> readSession(const std::filesystem::path& file){
     }
     in>>std::ws;if(!in.eof())throw std::runtime_error("Datos adicionales en la biblioteca");return result;
 }
-inline void writeSession(const std::filesystem::path& file,const std::vector<SessionEntry>& entries){
+inline void writeSession(const std::filesystem::path& file,const std::vector<SessionEntry>& entries,bool bands=false){
     if(entries.size()>1000)throw std::runtime_error("Demasiadas canciones");auto temp=file;temp+=L".tmp";
     try{std::ofstream out(temp,std::ios::binary|std::ios::trunc);if(!out)throw std::runtime_error("No se pudo guardar la biblioteca");
-        out<<"DubStemMix Library 1\n"<<entries.size()<<"\n"<<std::setprecision(17);
+        out<<"Dub Machine Mix Library 2\n"<<int(bands)<<"\n"<<entries.size()<<"\n"<<std::setprecision(17);
         for(auto& e:entries)out<<std::quoted(std::filesystem::absolute(e.source).u8string())<<' '<<std::quoted(e.cache.empty()?std::string():std::filesystem::absolute(e.cache).u8string())<<' '<<int(e.fast)<<' '<<e.duration<<'\n';
         out.close();if(!out)throw std::runtime_error("No hay espacio para guardar la biblioteca");
 #ifdef _WIN32

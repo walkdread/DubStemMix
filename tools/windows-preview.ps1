@@ -21,7 +21,7 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.6.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.7.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   if ([WindowCapture]::GetDlgItem($app.MainWindowHandle,900) -eq [IntPtr]::Zero) { throw 'Integrated library missing' }
   $h = $app.MainWindowHandle
   function Read-Probe([int]$id) { return [WindowCapture]::SendMessage($h,[uint32](0x8000+$id),[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() }
@@ -140,6 +140,47 @@ try {
   $mb.Save(($Output -replace '.png$','-meters.png'),[System.Drawing.Imaging.ImageFormat]::Png)
   $mg.Dispose(); $mb.Dispose()
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
+  # New modes exercise actual file decoder, shared library, Tap and duplex null backend.
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]881,[IntPtr]::Zero)
+  for ($i=0; $i -lt 150 -and (Read-Probe 32) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
+  if ((Read-Probe 32) -ne 1 -or (Read-Probe 22) -lt 380000) { throw 'Bands file mode did not load original audio' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]884,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 500
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]884,[IntPtr]::Zero)
+  if ((Read-Probe 34) -lt 450 -or (Read-Probe 34) -gt 650) { throw 'Tap echo timing failed' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]885,[IntPtr]::Zero)
+  if ((Read-Probe 34) -lt 225 -or (Read-Probe 34) -gt 325) { throw 'Tap division failed' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]10,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 300
+  if ((Read-Probe 25) -ne 1) { throw 'Bands playback failed' }
+  $br = New-Object WindowCapture+RECT
+  [void][WindowCapture]::SetWindowPos($h,[IntPtr]::Zero,0,0,1280,850,4)
+  Start-Sleep -Milliseconds 200
+  [void][WindowCapture]::GetWindowRect($h,[ref]$br)
+  $bb = New-Object System.Drawing.Bitmap(($br.Right-$br.Left),($br.Bottom-$br.Top))
+  $bg = [System.Drawing.Graphics]::FromImage($bb); $bdc = $bg.GetHdc()
+  try { [void][WindowCapture]::PrintWindow($h,$bdc,2) } finally { $bg.ReleaseHdc($bdc) }
+  $bb.Save(($Output -replace '.png$','-bands.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+  $bg.Dispose();$bb.Dispose()
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]883,[IntPtr]::Zero)
+  if ((Read-Probe 33) -ne 1 -or (Read-Probe 32) -ne 1) { throw 'USB source did not enable bands' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]10,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds 300
+  if ((Read-Probe 25) -ne 1) { throw 'Duplex null device did not start' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]882,[IntPtr]::Zero)
+  if ((Read-Probe 33) -ne 0 -or (Read-Probe 25) -ne 0) { throw 'Source switch must pause capture' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]870,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]873,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]872,[IntPtr]::Zero)
+  if ((Read-Probe 32) -ne 1) { throw 'Session did not retain bands mode' }
+  [void][WindowCapture]::SendMessage($list,0x186,[IntPtr]::Zero,[IntPtr]::Zero)
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]801,[IntPtr]::Zero)
+  for ($i=0; $i -lt 150 -and (Read-Probe 24) -ne 1; $i++) { Start-Sleep -Milliseconds 100 }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]880,[IntPtr]::Zero)
+  for ($i=0; $i -lt 150 -and (Read-Probe 32) -ne 0; $i++) { Start-Sleep -Milliseconds 100 }
+  if ((Read-Probe 32) -ne 0) { throw 'Return to stems failed' }
+  Write-Output 'PASS bands decoder, playback, Tap Echo, divisions, duplex capture, source switches and session mode'
   [void][WindowCapture]::PostMessage($h,0x111,[IntPtr]860,[IntPtr]::Zero)
   Start-Sleep -Milliseconds 400
   $notice = [WindowCapture]::FindWindow('DubNotice',$null)

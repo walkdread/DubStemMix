@@ -79,6 +79,7 @@ if(DUB_BUILD_WINDOWS_APP)
     INTERFACE_INCLUDE_DIRECTORIES "${onnxruntime_SOURCE_DIR}/build/native/include"
   )
   add_executable(DubStemMix WIN32 Sources/WindowsApp/Main.cpp Sources/WindowsApp/Miniaudio.c Sources/WindowsApp/Separator.cpp)
+  set_target_properties(DubStemMix PROPERTIES OUTPUT_NAME "DubMachineMix")
   target_include_directories(DubStemMix PRIVATE Sources/WindowsApp "${miniaudio_SOURCE_DIR}")
   target_compile_definitions(DubStemMix PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
   target_link_libraries(DubStemMix PRIVATE DubDSP winmm comctl32 comdlg32 ole32 user32 gdi32 bcrypt winhttp shell32 uuid dxgi gdiplus onnxruntime_cpu)
