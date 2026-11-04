@@ -16,7 +16,7 @@ jobs:
       - name: Compile
         run: cmake --build build-windows --config Release --parallel 2
       - name: Test DSP and mixer
-        run: ctest --test-dir build-windows -C Release --output-on-failure
+        run: ctest --test-dir build-windows -C Release --output-on-failure --verbose
       - name: Package portable application
         run: cmake --install build-windows --config Release --prefix package/DubMachineMix-Windows-alpha
       - name: Launch and capture Windows console
@@ -36,6 +36,7 @@ jobs:
           path: |
             windows-preview*.png
             separation-test.log
+            build-windows/Testing/Temporary/LastTest.log
       - name: Upload downloadable application
         uses: actions/upload-artifact@v4
         with:
