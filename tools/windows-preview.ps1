@@ -207,8 +207,9 @@ try {
   $toPoint = [IntPtr]((([int]($rowHeight*2.8)) -shl 16) -bor 30)
   [void][WindowCapture]::SendMessage($list,0x201,[IntPtr]1,$fromPoint)
   [void][WindowCapture]::SendMessage($list,0x200,[IntPtr]1,$toPoint)
+  $dragState = Read-Probe 38
   [void][WindowCapture]::SendMessage($list,0x202,[IntPtr]::Zero,$toPoint)
-  if ((Read-Probe 24) -ne 3 -or (Read-Probe 25) -ne 1) { throw 'Drag changed active song or failed to reorder' }
+  if ((Read-Probe 24) -ne 3 -or (Read-Probe 25) -ne 1) { throw "Drag failed: active=$(Read-Probe 24), playing=$(Read-Probe 25), drag=$dragState, rows=$rowHeight" }
   # Seek close to EOF via the actual waveform, then observe next in reordered queue.
   $client = New-Object WindowCapture+RECT
   [void][WindowCapture]::GetClientRect($h,[ref]$client)

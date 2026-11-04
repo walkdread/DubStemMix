@@ -761,8 +761,12 @@ LRESULT CALLBACK listProc(HWND h,UINT m,WPARAM w,LPARAM l,UINT_PTR id,DWORD_PTR)
         top=int(SendMessageW(h,LB_GETTOPINDEX,0,0));
         return std::clamp(top+(std::max(0,y)+height/2)/height,0,int(songs.size()));};
     if(m==WM_LBUTTONDOWN){
-        auto result=DefSubclassProc(h,m,w,l);auto hit=SendMessageW(h,LB_ITEMFROMPOINT,0,l);
-        if(!HIWORD(hit)&&LOWORD(hit)<songs.size()){dragSong=int(LOWORD(hit));dragOrigin={short(LOWORD(l)),short(HIWORD(l))};dropGap=-1;draggingSong=false;SetCapture(h);}return result;}
+        auto hit=SendMessageW(h,LB_ITEMFROMPOINT,0,l);SetFocus(h);
+        if(!HIWORD(hit)&&LOWORD(hit)<songs.size()){
+            SendMessageW(h,LB_SETCURSEL,LOWORD(hit),0);selectionChanged=GetTickCount64();
+            SetCapture(h);dragSong=int(LOWORD(hit));dragOrigin={short(LOWORD(l)),short(HIWORD(l))};dropGap=-1;draggingSong=false;
+            if(scrollRail)InvalidateRect(scrollRail,nullptr,FALSE);}
+        return 0;}
     if(m==WM_MOUSEMOVE&&dragSong>=0&&GetCapture()==h){
         int x=short(LOWORD(l)),y=short(HIWORD(l));
         if(!draggingSong&&(std::abs(x-dragOrigin.x)>GetSystemMetrics(SM_CXDRAG)||std::abs(y-dragOrigin.y)>GetSystemMetrics(SM_CYDRAG)))draggingSong=true;
@@ -975,6 +979,7 @@ if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_APP+34:return LRESULT(mixer->echo.seconds.load()*1000);
     case WM_APP+35:return shiftMode;
     case WM_APP+36:return wp<6?LRESULT(advancedValues[wp]*127):0;
+    case WM_APP+38:return (dragSong+1)|((dropGap+1)<<8)|(draggingSong?65536:0)|(GetCapture()==songList?131072:0);
     case WM_APP+37:return LRESULT(mixer->master.load()*127);
     case WM_APP+20:return paintCount; // Read-only idle repaint regression probe.
     case WM_TIMER:if(wp==2){KillTimer(h,2);sendAllGate.flush([](uint32_t m){handleMidi(m);});}else updateStatus();return 0;
