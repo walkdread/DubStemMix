@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(DubStemMixPortable VERSION 0.1.0 LANGUAGES C CXX)
+project(DubStemMixPortable VERSION 0.7.0 LANGUAGES C CXX)
 # Portable DSP and optional experimental Windows application.
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

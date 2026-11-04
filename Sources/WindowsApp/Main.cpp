@@ -320,6 +320,7 @@ void loadTrack(int track) {
 void updateStatus() {
     pollPreparation();
     syncModes();
+    if(liveSource){float peak=mixer->inputPeak.load();wchar_t level[80];if(peak>.00001f)swprintf_s(level,L"IN USB: %.1f dBFS",20*std::log10(peak));else wcscpy_s(level,L"IN USB: sin senal");setText(inputLabel,level);}
     theme::active(GetDlgItem(window,idPlay),mixer->playing.load());
     theme::active(GetDlgItem(window,idPause),!mixer->playing.load()&&mixer->position.load()>0);
     for(int t=0;t<6;++t){theme::active(mutes[t],mixer->isInstrument(t)?instrumentOn[t-4][0]:(mixer->strip[t].mute.load()||mixer->strip[t].solo.load()));theme::active(solos[t],mixer->isInstrument(t)?instrumentOn[t-4][1]:mixer->strip[t].solo.load());}
@@ -328,7 +329,7 @@ void updateStatus() {
     for(int i=0;i<6;++i)theme::active(fxButtons[i],fxOn[i]);
     auto elapsed=mixer->position.load()/dubwin::rate,total=mixer->totalFrames()/dubwin::rate;
     wchar_t clock[80];swprintf_s(clock,L"%02llu:%02llu / %02llu:%02llu",(unsigned long long)(elapsed/60),(unsigned long long)(elapsed%60),(unsigned long long)(total/60),(unsigned long long)(total%60));setText(clockLabel,liveSource?L"ENTRADA EN VIVO":clock);
-    auto mode=std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");setText(modeLabel,mode.c_str());
+    auto mode=bandsMode?std::wstring(L"Bandas / sin analisis"):std::wstring(fastMode?L"Rapido":L"Calidad")+(gpuDevice<0?L" / CPU":L" / GPU experimental");setText(modeLabel,mode.c_str());
     if(preparing.load()){std::lock_guard<std::mutex> lock(progressMutex);setText(status,progressText.c_str());}
     if(libraryStatus){std::lock_guard<std::mutex> lock(progressMutex);setText(libraryStatus,loading?L"Cargando audio preparado...":progressText.c_str());}
     static size_t lastPosition=~size_t(0);static float lastPeak=-1;
@@ -517,7 +518,7 @@ bool confirmLibraryChange(){
 void clearLibraryPlayback(){
     stopBackground();stopAudio();closeAudio();liveSource=false;mixer->liveInput=false;mixer->reset();resetGestures();warmCache.clear();warmFailed.clear();
     for(int t=0;t<6;++t){std::vector<float>().swap(mixer->strip[t].samples);mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)setText(names[t],L"Sin archivo");}
-    loadedSource.clear();loadedCache.clear();waveform.clear();queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
+    loadedSource.clear();loadedCache.clear();waveform.clear();loadedBands=bandsMode;restoreFrame=0;queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
     setText(songLabel,L"TU SESION DUB");resetPickup();InvalidateRect(window,nullptr,FALSE);
 }
 void newSession(){
@@ -597,7 +598,7 @@ void pollPreparation(){
             if(!loadedCache.empty()){dubwin::WarmAudio previous;previous.key=loadedCache;for(int t=0;t<4;++t)previous.stems[t]=std::move(mixer->strip[t].samples);previous.wave=std::move(waveform);warmCache.put(std::move(previous));}
             const wchar_t* titles[]={L"BATERIA",L"BAJO",L"OTROS",L"VOZ"};
             for(int t=0;t<6;++t){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();
-                mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4)setText(names[t],loadBandsMode?L"Banda":titles[t]);}
+                mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4){const wchar_t* ranges[]={L"< 80 Hz",L"80 - 250 Hz",L"250 - 3000 Hz",L"> 3000 Hz"};setText(names[t],loadBandsMode?ranges[t]:titles[t]);}}
             loadedSource=loadSource;loadedCache=loadCache;loadedFast=loadFast;syncModes();
             if(restoreFrame){mixer->seek(restoreFrame);restoreFrame=0;}
             for(auto& song:songs)if(song.source==loadedSource && song.fast==loadedFast)song.duration=double(mixer->totalFrames())/dubwin::rate;
@@ -636,16 +637,16 @@ void selectMode(bool bands){
     if(bands&&current>=0&&!std::filesystem::exists(songs[current].source)){error(L"No se encuentra el archivo original para usar Bandas.");return;}
     stopBackground();bandsMode=bands;restoreFrame=mixer->position.load();
     if(current>=0)requestLoadIndex(current,true);
-    else {stopAudio();mixer->reset();for(int t=0;t<4;++t)std::vector<float>().swap(mixer->strip[t].samples);waveform.clear();loadedCache.clear();loadedSource.clear();mixer->bandsMode=bands;restoreFrame=0;}
+    else {stopAudio();mixer->reset();for(int t=0;t<6;++t)std::vector<float>().swap(mixer->strip[t].samples);waveform.clear();loadedCache.clear();loadedSource.clear();mixer->bandsMode=bands;restoreFrame=0;}
     sessionDirty=true;saveLibrary();refreshLibrary();syncModes();
 }
 void selectSource(bool live){
     if(live==liveSource)return;if(loading){error(L"Espera a que termine la carga.");return;}
     if(live&&selectedInput<0){error(L"Conecta una interfaz y elige Preferencias > Entrada de audio.");return;}
     stopBackground();stopAudio();closeAudio();mixer->reset();resetGestures();liveSource=live;mixer->liveInput=live;
-    if(live){bandsMode=true;mixer->bandsMode=true;setProgress(L"Entrada USB lista. Ajusta el retorno fisico para evitar bucles y pulsa PLAY.");}
-    else {bandsMode=loadedBands;mixer->bandsMode=loadedBands;setProgress(L"Archivo seleccionado. Pulsa PLAY o carga otra cancion.");}
-    syncModes();saveLibrary();refreshLibrary();InvalidateRect(window,nullptr,FALSE);
+    if(live){bandsMode=true;mixer->bandsMode=true;for(int t=4;t<6;++t)syncInstrumentUI(t);setProgress(L"Entrada USB lista. Ajusta el retorno fisico para evitar bucles y pulsa PLAY.");}
+    else {bandsMode=loadedBands;mixer->bandsMode=loadedBands;for(int t=4;t<6;++t)syncInstrumentUI(t);setProgress(L"Archivo seleccionado. Pulsa PLAY o carga otra cancion.");}
+    syncModes();updateAudioLabel();saveLibrary();refreshLibrary();InvalidateRect(window,nullptr,FALSE);
 }
 void updateEchoTime(){
     if(tapSynced)mixer->echo.seconds=float(tapTempo.seconds(echoDivision));

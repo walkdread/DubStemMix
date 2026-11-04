@@ -85,7 +85,7 @@ public:
         for (auto* e : fx) if(e) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
     }
-    bool isInstrument(int t) const { return t>=4 && t<6 && strip[t].samples.empty(); }
+    bool isInstrument(int t) const { return t>=4 && t<6 && (liveInput || strip[t].samples.empty()); }
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
         crossover.reset();echo.reset();inputPeak=0;
