@@ -1,8 +1,12 @@
-DUB MACHINE MIX — WINDOWS 0.7.0
+DUB MACHINE MIX — WINDOWS 0.7.1
 
 Extrae TODO el ZIP. Abre DubMachineMix.exe. Conserva DLLs y carpeta fonts.
 Antes llamado DubStemMix. Conserva su carpeta de datos para recuperar tus modelos,
 stems y preferencias. No necesitas volver a analizar canciones preparadas.
+
+CORRECCION 0.7.1
+- Apertura de bibliotecas con saltos de linea Windows (CRLF) o Unix (LF).
+- Pruebas de procesamiento sostenido en Stems, Bandas y entrada simulada.
 
 NOVEDADES 0.7
 - STEMS: bateria, bajo, otros y voz; separacion local previa.

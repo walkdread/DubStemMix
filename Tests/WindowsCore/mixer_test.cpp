@@ -151,6 +151,17 @@ int main() try {
     {dubwin::TapTempo tap;CHECK(!tap.tap(1000));CHECK(tap.tap(1500));CHECK(tap.tap(2000));CHECK(std::abs(tap.bpm-120)<.01);CHECK(std::abs(tap.seconds(2)-.375)<.001);CHECK(!tap.tap(2050));CHECK(!tap.tap(6000));}
     {auto path=std::filesystem::temp_directory_path()/"dmm-bands.dubset";bool bands=false;dubwin::writeSession(path,{},true);dubwin::readSession(path,&bands);CHECK(bands);
         {std::ofstream old(path);old<<"DubStemMix Library 1\n0\n";}dubwin::readSession(path,&bands);CHECK(!bands);std::filesystem::remove(path);}
+    // Sessions from either platform accept LF and CRLF in both format versions.
+    for(const char* newline:{"\n","\r\n"})for(int version:{1,2}) {
+        auto path=std::filesystem::temp_directory_path()/"dmm-session-newlines.dubset";
+        {std::ofstream file(path,std::ios::binary);
+         file<<(version==1?"DubStemMix Library 1":"Dub Machine Mix Library 2")<<newline;
+         if(version==2)file<<1<<newline;
+         file<<1<<newline<<"\"song.wav\" \"\" 1 10.5"<<newline;}
+        bool bands=false;auto restored=dubwin::readSession(path,&bands);
+        CHECK(restored.size()==1 && restored[0].duration==10.5 && bands==(version==2));
+        CHECK(restored[0].source==path.parent_path()/"song.wav");std::filesystem::remove(path);
+    }
     // Weighted overlap must reconstruct a constant without gaps, including the padded tail.
     std::puts("TEST: Weighted overlap must reconstruct a constant without gaps, including the padded tail.");
     const size_t total=dubwin::modelFrames+dubwin::stride+37;

@@ -16,6 +16,8 @@ namespace dubwin {
 struct SessionEntry {std::filesystem::path source,cache;bool fast=true;double duration=-1;};
 inline std::vector<SessionEntry> readSession(const std::filesystem::path& file,bool* bands=nullptr){
     std::ifstream in(file,std::ios::binary);std::string magic;std::getline(in,magic);
+    // Binary reads preserve CR in Windows CRLF headers (including v1 libraries).
+    if(!magic.empty() && magic.back()=='\r')magic.pop_back();
     bool v2=magic=="Dub Machine Mix Library 2";if(bands)*bands=false;
     if(!v2&&magic!="DubStemMix Library 1")throw std::runtime_error("No es una biblioteca DubStemMix compatible");
     if(v2){int mode=0;if(!(in>>mode)||(mode!=0&&mode!=1))throw std::runtime_error("Modo invalido");if(bands)*bands=mode!=0;}

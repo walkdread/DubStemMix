@@ -342,7 +342,7 @@ void updateStatus() {
         mixer->playing=false; error(L"Se interrumpio la salida de audio. Pulsa Detener y Actualizar audio para reconectar.");
     }
     const auto seconds=mixer->position.load()/dubwin::rate;
-    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.7.0 — instrumentos + preparacion",
+    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.7.1 — instrumentos + preparacion",
         mixer->playing.load()?L"REPRODUCIENDO":L"PAUSA / DETENIDO",
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
     if(!preparing.load())setText(status,buffer);
@@ -612,7 +612,7 @@ void pollPreparation(){
         if(preparationError.empty()){song.cache=jobCache;song.duration=-1;warmCache.erase(jobCache);warmFailed.erase(jobCache);sessionDirty=true;}
         else if(!cancelPreparation){
             SYSTEMTIME t{};GetLocalTime(&t);wchar_t stamp[64];swprintf_s(stamp,L"%04u-%02u-%02u %02u:%02u:%02u",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
-            recordStemError(std::wstring(L"Dub Machine Mix 0.7.0 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
+            recordStemError(std::wstring(L"Dub Machine Mix 0.7.1 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
             queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
         }
         setProgress(preparationError.empty()?L"Stems listos. Selecciona y carga desde la lista.":L"Analisis detenido. Abre Ayuda > Ultimo error de stems para ver el detalle.");
@@ -736,7 +736,7 @@ void drawChannelMeters(HDC dc){for(int t=0;t<8;++t){float peak=t<6?mixer->channe
 
 void buildUI(){
     font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"STEMS + BANDAS / 0.7.0",0,16,54,200,18);
+    control(L"STATIC",L"STEMS + BANDAS / 0.7.1",0,16,54,200,18);
     control(L"BUTTON",L"+  AGREGAR CANCION",WS_TABSTOP,16,94,194,36,idSong);
     control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
     modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
@@ -905,7 +905,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT message,WPARAM wp,LPARAM lp) {
             saveLibrary();buildMenus();return 0;}
         if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;setText(midiLabel,L"Pulsa un boton MIDI (REC ARM 1-4 reservado).");return 0;}
         if(id==idLastError){showStemError();return 0;}
-        if(id==idAbout){theme::message(window,L"Dub Machine Mix 0.7.0\n\nSTEMS: bateria, bajo, otros y voz. BANDAS: sub, bajos, medios y agudos (cruces 80 / 250 / 3000 Hz). Agrega canciones en ambos modos. Limite: 10 minutos por archivo.\n\nARCHIVO reproduce tu biblioteca. ENTRADA USB procesa en vivo: elige entrada/salida en Preferencias y pulsa PLAY. Al cambiar de fuente se pausa el audio. Evita devolver el USB a la misma entrada de la interfaz.\n\nEcho Dub reemplaza Phaser. TAP ECHO marca el ritmo; el boton 1/4 cambia la division. MIDI: nota 23 (SOLO + MUTE 8 con mapa de fabrica) = Tap. Espacio Play/Pausa; Bank Left Play; Bank Right Reiniciar; REC ARM 1-4 Solo. SEND ALL no se usa para Tap.\n\nLas bibliotecas antiguas siguen abriendo. Guarda las nuevas como .dubset. La cache RAM usa hasta 1 GB, ademas de la cancion activa y buffers de analisis. GPU experimental: usa CPU si falla.",L"Dub Machine Mix 0.7.0",MB_OK);return 0;}
+        if(id==idAbout){theme::message(window,L"Dub Machine Mix 0.7.1\n\nSTEMS: bateria, bajo, otros y voz. BANDAS: sub, bajos, medios y agudos (cruces 80 / 250 / 3000 Hz). Agrega canciones en ambos modos. Limite: 10 minutos por archivo.\n\nARCHIVO reproduce tu biblioteca. ENTRADA USB procesa en vivo: elige entrada/salida en Preferencias y pulsa PLAY. Al cambiar de fuente se pausa el audio. Evita devolver el USB a la misma entrada de la interfaz.\n\nEcho Dub reemplaza Phaser. TAP ECHO marca el ritmo; el boton 1/4 cambia la division. MIDI: nota 23 (SOLO + MUTE 8 con mapa de fabrica) = Tap. Espacio Play/Pausa; Bank Left Play; Bank Right Reiniciar; REC ARM 1-4 Solo. SEND ALL no se usa para Tap.\n\nLas bibliotecas antiguas siguen abriendo. Guarda las nuevas como .dubset. La cache RAM usa hasta 1 GB, ademas de la cancion activa y buffers de analisis. GPU experimental: usa CPU si falla.",L"Dub Machine Mix 0.7.1",MB_OK);return 0;}
         if(id==idDataFolder){if(preparing || loading){error(L"Espera a que termine el trabajo antes de cambiar la carpeta.");return 0;}BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
             auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");theme::message(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
@@ -956,7 +956,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=windowProc;cls.lpszClassName=L"DubStemMixWinAlpha";
         cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=theme::bg();
         RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1280,int(work.right-work.left)-20),std::min(800,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,FALSE);
-        HWND h=CreateWindowW(cls.lpszClassName,L"Dub Machine Mix — Windows alpha 0.7.0",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        HWND h=CreateWindowW(cls.lpszClassName,L"Dub Machine Mix — Windows alpha 0.7.1",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
         if(!h){ma_context_uninit(&context);return 1;}
         ShowWindow(h,show);UpdateWindow(h);
