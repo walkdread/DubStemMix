@@ -21,7 +21,7 @@ try {
   Start-Sleep -Seconds 4
   $app.Refresh()
   if ($app.HasExited) { throw 'Application exited during startup' }
-  if ($app.MainWindowTitle -notlike '*alpha 0.8.0*') { throw "Unexpected window: $($app.MainWindowTitle)" }
+  if ($app.MainWindowTitle -notlike '*alpha 0.8.1*') { throw "Unexpected window: $($app.MainWindowTitle)" }
   if ([WindowCapture]::GetDlgItem($app.MainWindowHandle,900) -eq [IntPtr]::Zero) { throw 'Integrated library missing' }
   $h = $app.MainWindowHandle
   function Read-Probe([int]$id) { return [WindowCapture]::SendMessage($h,[uint32](0x8000+$id),[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() }
@@ -57,6 +57,10 @@ try {
   if ((Read-Probe 25) -ne 1) { throw 'Bank Left did not start playback' }
   Start-Sleep -Milliseconds 150
   if ([WindowCapture]::SendMessage($h,0x801e,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -le 1000) { throw 'Channel meter did not detect audio' }
+  foreach ($note in @(13,15,16,18)) {
+    [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x90 -bor ($note -shl 8) -bor (127 -shl 16)),[IntPtr]::Zero)
+  }
+  $stopsBefore = Read-Probe 40
   $switchTime = [System.Diagnostics.Stopwatch]::StartNew()
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]16,[IntPtr]::Zero)
   $switchTime.Stop()
@@ -65,6 +69,17 @@ try {
   if ((Read-Probe 31) -gt 1073741824) { throw 'Warm cache exceeded its budget' }
   for ($i=0; $i -lt 100 -and (Read-Probe 24) -ne 2; $i++) { Start-Sleep -Milliseconds 100 }
   if ((Read-Probe 24) -ne 2 -or (Read-Probe 25) -ne 1) { throw 'Next did not load and play the next prepared song' }
+  if ((Read-Probe 39) -ne 15 -or (Read-Probe 40) -ne $stopsBefore) { throw 'Track switch reset instruments or stopped audio device' }
+  Start-Sleep -Milliseconds 100
+  foreach ($channel in @(4,5)) {
+    if ([WindowCapture]::SendMessage($h,0x801e,[IntPtr]$channel,[IntPtr]::Zero).ToInt64() -le 1000) { throw 'Instrument became silent after Next' }
+  }
+  foreach ($note in @(13,15,16,18)) {
+    [void][WindowCapture]::SendMessage($h,0x8001,[IntPtr](0x80 -bor ($note -shl 8)),[IntPtr]::Zero)
+  }
+  if ((Read-Probe 39) -ne 0) { throw 'MIDI release failed after track switch' }
+  [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]22,[IntPtr]::Zero)
+  Write-Output 'PASS held siren/Syndrum survive Next, device stays running and MIDI release still works'
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]11,[IntPtr]::Zero)
   [void][WindowCapture]::SendMessage($h,0x111,[IntPtr]1000,[IntPtr]::Zero)
   if ((Read-Probe 26) -ne 0) { throw 'Output menu selection failed' }

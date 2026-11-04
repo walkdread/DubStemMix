@@ -17,7 +17,7 @@ static_assert(std::atomic<float>::is_always_lock_free);
 static_assert(std::atomic<bool>::is_always_lock_free);
 static_assert(std::atomic<uint64_t>::is_always_lock_free);
 struct Strip {
-    // Only replace samples with the audio device stopped.
+    // Replace only with the device stopped or after the track-change acknowledgement.
     std::vector<float> samples;
     std::atomic<float> level{0.7f};
     std::array<std::atomic<float>, buses> send{};
@@ -35,6 +35,12 @@ class Mixer {
     std::array<DubEffect*, 2> instruments{};
     float voice[2][quantum]{};
     uint64_t cursor = 0;
+    // 0=normal, 1=request, 2=UI owns sample buffers, 3=resume requested.
+    // The audio callback continues instruments/FX without touching file buffers in state 2.
+    std::atomic<int> trackChange{0};
+    bool changeInstruments[2]{true,true};
+    uint64_t nextFrame=0;
+
     std::atomic<uint64_t> seekTarget{UINT64_MAX};
     unsigned seekFade=0;
     float lastOutput[2]{},seekFrom[2]{};
@@ -96,8 +102,29 @@ public:
         setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
     }
     bool isInstrument(int t) const { return t>=4 && t<6 && (liveInput || strip[t].samples.empty()); }
+    void requestTrackChange() noexcept {int expected=0;trackChange.compare_exchange_strong(expected,1);}
+    bool trackChangeReady() const noexcept {return trackChange.load(std::memory_order_acquire)==2;}
+    void finishTrackChange(bool resume,uint64_t frame=0) noexcept {
+        nextFrame=frame;seekTarget=UINT64_MAX;ended=false;playing=resume;
+        trackChange.store(3,std::memory_order_release);
+    }
+    // Audio thread, or UI only when the device is stopped. Never waits or allocates.
+    bool serviceTrackChange() noexcept {
+        int state=trackChange.load(std::memory_order_acquire);
+        if(state==1){for(int i=0;i<2;++i)changeInstruments[i]=isInstrument(i+4);
+            trackChange.store(2,std::memory_order_release);return true;}
+        if(state==2)return true;
+        if(state==3){
+            crossover.reset();cursor=std::min<uint64_t>(nextFrame,totalFrames());position=cursor;
+            ended=false;
+            // Fade new file channels in, preserving instruments, tails, limiter and master.
+            for(int t=0;t<4;++t){strip[t].smoothLevel=0;strip[t].smoothSend.fill(0);}
+            trackChange.store(0,std::memory_order_release);
+        }return false;
+    }
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
+        trackChange=0;
         crossover.reset();echo.reset();inputPeak=0;ended=false;
         dub_effect_prepare(crash,rate);crashTrigger=false;crashPanic=false;crashAwake=false;crashQuiet=0;smoothCrash=0;
         releaseInstruments();
@@ -117,22 +144,23 @@ public:
     void render(float* output, unsigned frames,const float* capture=nullptr) noexcept {
         float blockPeak = 0,capturePeak=0;std::array<float,6> channelMax{};std::array<float,3> returnMax{};
         for (unsigned offset = 0; offset < frames; offset += quantum) {
-            const auto targetPosition=seekTarget.exchange(UINT64_MAX,std::memory_order_acquire);
+            const bool changing=serviceTrackChange();
+            const auto targetPosition=changing?UINT64_MAX:seekTarget.exchange(UINT64_MAX,std::memory_order_acquire);
             if(targetPosition!=UINT64_MAX){crossover.reset();cursor=std::min<uint64_t>(targetPosition,totalFrames());seekFade=128;seekFrom[0]=lastOutput[0];seekFrom[1]=lastOutput[1];}
             const unsigned n = std::min(quantum, frames - offset);
             for (auto& c : dry) std::fill_n(c, n, 0.0f);
             for (auto& b : inputs) for (auto& c : b) std::fill_n(c, n, 0.0f);
             bool anySolo = false;
             for (auto& s : strip) anySolo |= s.solo.load(std::memory_order_relaxed);
-            const bool run = playing.load(std::memory_order_relaxed);
-            if(bandsMode){float gain=inputGain.load();for(unsigned i=0;i<n;++i)for(int c=0;c<2;++c){
+            const bool run = !changing && playing.load(std::memory_order_relaxed);
+            if(!changing&&bandsMode){float gain=inputGain.load();for(unsigned i=0;i<n;++i)for(int c=0;c<2;++c){
                 size_t p=size_t(cursor+i)*2+c;float x=liveInput?(capture?capture[(offset+i)*2+c]*gain:0):(p<strip[0].samples.size()?strip[0].samples[p]:0);
                 if(!std::isfinite(x))x=0;capturePeak=std::max(capturePeak,std::abs(x));auto parts=crossover.process(run?x:0,c);
                 for(int t=0;t<4;++t)bandAudio[t][c][i]=parts[t];
             }}
             for (int t=0;t<tracks;++t) {
                 auto& s=strip[t];
-                const bool instrument=isInstrument(t);
+                const bool instrument=changing?(t>=4&&changeInstruments[t-4]):isInstrument(t);
                 if(instrument) {
                     for(auto& channel:voice) std::fill_n(channel,n,0.0f);
                     dub_effect_process(instruments[t-4],voice[0],voice[1],voice[0],voice[1],static_cast<int>(n));
@@ -144,8 +172,8 @@ public:
                     s.smoothLevel += (target - s.smoothLevel) * (1.0f/480.0f);
                     const uint64_t p = (cursor+i)*2;
                     const bool valid = run && p+1 < s.samples.size();
-                    const float l = (bandsMode&&t<4?bandAudio[t][0][i]:(instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0)))*s.smoothLevel;
-                    const float r = (bandsMode&&t<4?bandAudio[t][1][i]:(instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0)))*s.smoothLevel;
+                    const float l = (!changing&&bandsMode&&t<4?bandAudio[t][0][i]:(instrument ? voice[0][i] : (valid ? s.samples[static_cast<size_t>(p)] : 0)))*s.smoothLevel;
+                    const float r = (!changing&&bandsMode&&t<4?bandAudio[t][1][i]:(instrument ? voice[1][i] : (valid ? s.samples[static_cast<size_t>(p+1)] : 0)))*s.smoothLevel;
                     channelMax[t]=std::max(channelMax[t],std::max(std::abs(l),std::abs(r)));
                     dry[0][i] += l; dry[1][i] += r;
                     for (int b = 0; b < buses; ++b) {

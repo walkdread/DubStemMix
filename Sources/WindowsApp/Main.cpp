@@ -85,7 +85,7 @@ std::thread loader;
 std::atomic<bool> loading{false},loadDone{false},cancelLoad{false};
 std::wstring loadError,loadTitle;
 std::filesystem::path loadedSource,loadSource;
-bool loadedFast=true,loadFast=true,resumeAfterLoad=false;
+bool loadedFast=true,loadFast=true,resumeAfterLoad=false,reloadCurrent=false;
 std::vector<float> waveform,preparedWaveform;
 bool waveDragging=false;
 int selectedOutput=-1;
@@ -118,6 +118,7 @@ void pollPreparation();
 std::unique_ptr<dubwin::Mixer> mixer;
 ma_context context{}; ma_device device{};
 bool contextReady=false,deviceReady=false;
+unsigned audioStopCount=0;
 std::vector<ma_device_id> deviceIds;
 HMIDIIN midiIn{}; HMIDIOUT midiOut{};
 bool soloHeld=false;
@@ -175,7 +176,7 @@ void resetPickup() {
 void audioCallback(ma_device* d,void* out,const void* in,ma_uint32 frames) {
     static_cast<dubwin::Mixer*>(d->pUserData)->render(static_cast<float*>(out),frames,static_cast<const float*>(in));
 }
-void stopAudio() {if(deviceReady)ma_device_stop(&device);}
+void stopAudio() {if(deviceReady){if(ma_device_is_started(&device))++audioStopCount;ma_device_stop(&device);}}
 void closeAudio() {if(deviceReady){ma_device_uninit(&device);deviceReady=false;}}
 bool openAudio() {
     closeAudio();
@@ -377,7 +378,7 @@ void updateStatus() {
         mixer->playing=false; error(L"Se interrumpio la salida de audio. Pulsa Detener y Actualizar audio para reconectar.");
     }
     const auto seconds=mixer->position.load()/dubwin::rate;
-    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.8.0 — instrumentos + preparacion",
+    wchar_t buffer[256];swprintf_s(buffer,L"%s  |  %llu:%02llu  |  Pico %.0f%%  |  Windows alpha 0.8.1 — instrumentos + preparacion",
         mixer->playing.load()?L"REPRODUCIENDO":L"PAUSA / DETENIDO",
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
     if(!preparing.load())setText(status,buffer);
@@ -607,13 +608,11 @@ void requestLoadIndex(int n,bool next=false,bool automatic=false){
     if(loading){error(L"Ya hay una cancion cargandose.");return;}
     if(!playable(songs[n])){error(L"Espera a que la cancion este Lista.");return;}
     if(mixer->playing && !next){error(L"Pulsa PAUSA antes de cargar otra cancion, o utiliza SIGUIENTE.");return;}
-    if(songKey(songs[n])==loadedCache && songs[n].source==loadedSource && songs[n].fast==loadedFast){
-        bool resume=automatic||(next&&mixer->playing.load());stopAudio();mixer->reset();resetGestures();for(int t=0;t<6;++t){mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncButtons(t);}++warmHits;
-        auto r=waveRect();InvalidateRect(window,&r,FALSE);if(resume)SendMessageW(window,WM_COMMAND,idPlay,0);return;
-    }
+    reloadCurrent=songKey(songs[n])==loadedCache && songs[n].source==loadedSource && songs[n].fast==loadedFast;
     auto folder=bandsMode?songs[n].source:songs[n].cache;auto key=songKey(songs[n]);loadBandsMode=bandsMode;loadCache=key;loadSource=songs[n].source;loadFast=songs[n].fast;loadTitle=loadSource.stem().wstring();
     resumeAfterLoad=automatic||(next && mixer->playing.load());loadError.clear();loading=true;loadDone=false;cancelLoad=false;
     SendMessageW(songList,LB_SETCURSEL,n,0);setText(libraryStatus,L"Cargando audio preparado...");
+    if(reloadCurrent){++warmHits;loadDone=true;pollPreparation();return;}
     dubwin::WarmAudio ready;if(warmCache.take(key,ready)){
         preparedStems=std::move(ready.stems);preparedWaveform=std::move(ready.wave);++warmHits;loadDone=true;pollPreparation();return;
     }
@@ -629,22 +628,34 @@ void nextSong(bool automatic){
     if(automatic){setProgress(L"Fin de la cola reproducible.");return;}
     error(L"No hay otra cancion preparada despues de la actual. Agrega canciones o espera a que termine el analisis.");
 }
+bool beginSongChange(){
+    mixer->requestTrackChange();
+    if(!deviceReady||!ma_device_is_started(&device))mixer->serviceTrackChange();
+    else {auto deadline=GetTickCount64()+50;while(!mixer->trackChangeReady()&&GetTickCount64()<deadline)Sleep(1);}
+    return mixer->trackChangeReady(); // A delayed callback is retried on the next UI timer.
+}
+void finishSongChange(bool resume,uint64_t frame=0){
+    mixer->finishTrackChange(resume,frame);
+    if(!deviceReady||!ma_device_is_started(&device))mixer->serviceTrackChange();
+}
 void pollPreparation(){
     pollWarm();
     if(loading && loadDone.load(std::memory_order_acquire)){
-        if(loader.joinable())loader.join();loading=false;
+        if(loader.joinable())loader.join();
+        if(loadError.empty()&&!beginSongChange())return;
+        loading=false;
         if(!loadError.empty()){bandsMode=mixer->bandsMode;restoreFrame=0;syncModes();saveLibrary();refreshLibrary();preparedStems={};preparedWaveform.clear();recordStemError(L"Carga: "+loadTitle+L"\nError: "+loadError);error(loadError.c_str());}
-        else {stopAudio();mixer->reset();mixer->bandsMode=loadBandsMode;loadedBands=loadBandsMode;resetGestures();
-            if(!loadedCache.empty()){dubwin::WarmAudio previous;previous.key=loadedCache;for(int t=0;t<4;++t)previous.stems[t]=std::move(mixer->strip[t].samples);previous.wave=std::move(waveform);warmCache.put(std::move(previous));}
+        else {mixer->bandsMode=loadBandsMode;loadedBands=loadBandsMode;
+            if(!reloadCurrent&&!loadedCache.empty()){dubwin::WarmAudio previous;previous.key=loadedCache;for(int t=0;t<4;++t)previous.stems[t]=std::move(mixer->strip[t].samples);previous.wave=std::move(waveform);warmCache.put(std::move(previous));}
             const wchar_t* titles[]={L"BATERIA",L"BAJO",L"OTROS",L"VOZ"};
-            for(int t=0;t<6;++t){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();
-                mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4){const wchar_t* ranges[]={L"< 80 Hz",L"80 - 250 Hz",L"250 - 3000 Hz",L"> 3000 Hz"};setText(names[t],loadBandsMode?ranges[t]:titles[t]);}}
+            for(int t=0;t<6;++t){if(!reloadCurrent){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();}
+                if(t<4){mixer->strip[t].mute=false;mixer->strip[t].solo=false;}syncInstrumentUI(t);if(t<4){const wchar_t* ranges[]={L"< 80 Hz",L"80 - 250 Hz",L"250 - 3000 Hz",L"> 3000 Hz"};setText(names[t],loadBandsMode?ranges[t]:titles[t]);}}
             loadedSource=loadSource;loadedCache=loadCache;loadedFast=loadFast;syncModes();
-            if(restoreFrame){mixer->seek(restoreFrame);restoreFrame=0;ensureAudio();}
+            finishSongChange(resumeAfterLoad,restoreFrame);restoreFrame=0;
             for(auto& song:songs)if(song.source==loadedSource && song.fast==loadedFast)song.duration=double(mixer->totalFrames())/dubwin::rate;
-            refreshLibrary();waveform=std::move(preparedWaveform);
+            refreshLibrary();if(!reloadCurrent)waveform=std::move(preparedWaveform);
             setText(songLabel,loadTitle.c_str());InvalidateRect(window,nullptr,FALSE);resetPickup();setProgress(L"Cancion cargada. Pulsa PLAY.");
-            if(resumeAfterLoad)SendMessageW(window,WM_COMMAND,idPlay,0); }
+            if(resumeAfterLoad)ensureAudio(); }
     }
     if(preparing && preparationDone.load(std::memory_order_acquire)){
         if(preparation.joinable())preparation.join();preparing=false;
@@ -652,7 +663,7 @@ void pollPreparation(){
         if(preparationError.empty()){song.cache=jobCache;song.duration=-1;warmCache.erase(jobCache);warmFailed.erase(jobCache);sessionDirty=true;}
         else if(!cancelPreparation){
             SYSTEMTIME t{};GetLocalTime(&t);wchar_t stamp[64];swprintf_s(stamp,L"%04u-%02u-%02u %02u:%02u:%02u",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);
-            recordStemError(std::wstring(L"Dub Machine Mix 0.8.0 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
+            recordStemError(std::wstring(L"Dub Machine Mix 0.8.1 / ")+stamp+L"\nArchivo: "+song.source.wstring()+L"\nModo: "+(song.fast?L"Rapido":L"Calidad")+L"\nMotor: "+jobBackend+L"\n\nError: "+preparationError);
             queuePaused=true;setText(GetDlgItem(window,idQueuePause),L"Seguir cola");
         }
         setProgress(preparationError.empty()?L"Stems listos. Selecciona y carga desde la lista.":L"Analisis detenido. Abre Ayuda > Ultimo error de stems para ver el detalle.");
@@ -832,7 +843,7 @@ void setShift(bool on){
 }
 void buildUI(){
     font=CreateFontW(-13,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
-    control(L"STATIC",L"STEMS + BANDAS / 0.8.0",0,16,54,200,18);
+    control(L"STATIC",L"STEMS + BANDAS / 0.8.1",0,16,54,200,18);
     control(L"BUTTON",L"+  AGREGAR CANCION",WS_TABSTOP,16,94,194,36,idSong);
     control(L"BUTTON",L"Pausar cola",WS_TABSTOP,16,138,94,28,idQueuePause);control(L"BUTTON",L"Cancelar",WS_TABSTOP,116,138,94,28,idCancel);
     modeLabel=control(L"STATIC",L"",SS_ENDELLIPSIS,16,180,194,20);
@@ -850,10 +861,10 @@ void buildUI(){
     midiLabel=control(L"STATIC",L"MIDI: desconectado",SS_ENDELLIPSIS,16,752,194,16);
     control(L"BUTTON",L"PLAY",WS_TABSTOP,240,16,66,36,idPlay);control(L"BUTTON",L"PAUSA",WS_TABSTOP,312,16,66,36,idPause);control(L"BUTTON",L"REINICIAR",WS_TABSTOP,384,16,86,36,idStop);
     control(L"BUTTON",L"SIGUIENTE",WS_TABSTOP,478,16,94,36,idNext);
-    songLabel=control(L"STATIC",L"TU SESION DUB",SS_ENDELLIPSIS,590,12,540,28);
+    songLabel=control(L"STATIC",L"TU SESION DUB",SS_ENDELLIPSIS,590,42,440,24);
     clockLabel=control(L"STATIC",L"00:00 / 00:00",0,1040,46,205,18);
-    control(L"BUTTON",L"STEMS",WS_TABSTOP,590,42,85,23,idStems);control(L"BUTTON",L"BANDAS",WS_TABSTOP,680,42,85,23,idBands);
-    control(L"BUTTON",L"ARCHIVO",WS_TABSTOP,785,42,105,23,idFileSource);control(L"BUTTON",L"ENTRADA USB",WS_TABSTOP,895,42,125,23,idUSBSource);
+    control(L"BUTTON",L"STEMS",WS_TABSTOP,590,12,85,23,idStems);control(L"BUTTON",L"BANDAS",WS_TABSTOP,680,12,85,23,idBands);
+    control(L"BUTTON",L"ARCHIVO",WS_TABSTOP,785,12,105,23,idFileSource);control(L"BUTTON",L"ENTRADA USB",WS_TABSTOP,895,12,125,23,idUSBSource);
     control(L"BUTTON",L"PANIC",WS_TABSTOP,1150,16,106,36,idPanic);
     const wchar_t* effects[]={L"TIEMPO",L"FEEDBK",L"DECAY",L"DAMP",L"TIEMPO",L"FEEDBK"};
     for(int e=0;e<6;++e){int x=240+(e/2)*340+192+(e%2)*68;fxDials[e]=dial(x,122,46,52,idEffectDial+e,fxValues[e]);control(L"STATIC",effects[e],SS_CENTER,x-8,176,62,15,940+e);}
@@ -979,6 +990,8 @@ if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
     case WM_APP+34:return LRESULT(mixer->echo.seconds.load()*1000);
     case WM_APP+35:return shiftMode;
     case WM_APP+36:return wp<6?LRESULT(advancedValues[wp]*127):0;
+    case WM_APP+39:return (instrumentOn[0][0]?1:0)|(instrumentOn[0][1]?2:0)|(instrumentOn[1][0]?4:0)|(instrumentOn[1][1]?8:0);
+    case WM_APP+40:return audioStopCount;
     case WM_APP+38:return (dragSong+1)|((dropGap+1)<<8)|(draggingSong?65536:0)|(GetCapture()==songList?131072:0);
     case WM_APP+37:return LRESULT(mixer->master.load()*127);
     case WM_APP+20:return paintCount; // Read-only idle repaint regression probe.
@@ -1032,7 +1045,7 @@ if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
             saveLibrary();buildMenus();return 0;}
         if(id>=idLearn && id<idLearn+3){learnTransport=id-idLearn;setText(midiLabel,L"Pulsa un boton MIDI (REC ARM 1-4 reservado).");return 0;}
         if(id==idLastError){showStemError();return 0;}
-        if(id==idAbout){theme::message(window,L"Dub Machine Mix 0.8.0\n\nSTEMS: bateria, bajo, otros y voz. BANDAS: sub, bajos, medios y agudos (cruces 80 / 250 / 3000 Hz). Agrega canciones en ambos modos. Limite: 10 minutos por archivo.\n\nARCHIVO reproduce tu biblioteca. ENTRADA USB procesa en vivo: elige entrada/salida en Preferencias y pulsa PLAY. Al cambiar de fuente se pausa el audio. Evita devolver el USB a la misma entrada de la interfaz.\n\nEcho Dub reemplaza Phaser. TAP ECHO marca el ritmo; el boton 1/4 cambia la division. MIDI: nota 23 (SOLO + MUTE 8 con mapa de fabrica) = Tap. Espacio Play/Pausa; Bank Left Play; Bank Right Reiniciar; REC ARM 1-4 Solo. SEND ALL alterna SHIFT al recibir el banco completo de 33 CC del mapa de fabrica. SHIFT / FX en pantalla hace lo mismo. En SHIFT: perillas 7/8 ajustan HOLD, velocidad, intensidad/volumen CRASH y freno/vuelta. Las tres perillas del canal 1 controlan Echo Return, filtro y saturacion.\n\nLas bibliotecas antiguas siguen abriendo. Guarda las nuevas como .dubset. La cache RAM usa hasta 1 GB, ademas de la cancion activa y buffers de analisis. GPU experimental: usa CPU si falla.",L"Dub Machine Mix 0.8.0",MB_OK);return 0;}
+        if(id==idAbout){theme::message(window,L"Dub Machine Mix 0.8.1\n\nSTEMS: bateria, bajo, otros y voz. BANDAS: sub, bajos, medios y agudos (cruces 80 / 250 / 3000 Hz). Agrega canciones en ambos modos. Limite: 10 minutos por archivo.\n\nARCHIVO reproduce tu biblioteca. ENTRADA USB procesa en vivo: elige entrada/salida en Preferencias y pulsa PLAY. Al cambiar de fuente se pausa el audio. Evita devolver el USB a la misma entrada de la interfaz.\n\nEcho Dub reemplaza Phaser. TAP ECHO marca el ritmo; el boton 1/4 cambia la division. MIDI: nota 23 (SOLO + MUTE 8 con mapa de fabrica) = Tap. Espacio Play/Pausa; Bank Left Play; Bank Right Reiniciar; REC ARM 1-4 Solo. SEND ALL alterna SHIFT al recibir el banco completo de 33 CC del mapa de fabrica. SHIFT / FX en pantalla hace lo mismo. En SHIFT: perillas 7/8 ajustan HOLD, velocidad, intensidad/volumen CRASH y freno/vuelta. Las tres perillas del canal 1 controlan Echo Return, filtro y saturacion.\n\nLas bibliotecas antiguas siguen abriendo. Guarda las nuevas como .dubset. La cache RAM usa hasta 1 GB, ademas de la cancion activa y buffers de analisis. GPU experimental: usa CPU si falla.",L"Dub Machine Mix 0.8.1",MB_OK);return 0;}
         if(id==idDataFolder){if(preparing || loading){error(L"Espera a que termine el trabajo antes de cambiar la carpeta.");return 0;}BROWSEINFOW bi{};bi.hwndOwner=window;bi.lpszTitle=L"Elige una carpeta para modelos y stems (puede estar en D:)";bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
             auto pidl=SHBrowseForFolderW(&bi);if(pidl){wchar_t path[MAX_PATH]{};if(SHGetPathFromIDListW(pidl,path)){try{dubwin::setDataRoot(std::filesystem::path(path)/L"DubStemMix");theme::message(window,L"Carpeta guardada. Los archivos existentes permanecen en su ubicacion anterior.",L"DubStemMix",MB_OK);}catch(const std::exception& e){error(wide(e.what()).c_str());}}CoTaskMemFree(pidl);}return 0;}
         if(id==idSong){startPreparation();return 0;}
@@ -1047,7 +1060,7 @@ if(item->CtlID==900){item->itemHeight=sy(55);return TRUE;}break;}
         case idPlay:
             if(loading){error(L"Espera a que termine de cargar la cancion seleccionada.");break;}
             if(!liveSource&&!mixer->totalFrames()){error(L"Carga al menos una pista primero.");break;}
-            if(!liveSource&&mixer->position.load()>=mixer->totalFrames()){stopAudio();mixer->reset();resetGestures();}
+            if(!liveSource&&mixer->position.load()>=mixer->totalFrames())mixer->seek(0);
             if(!deviceReady && !openAudio())break;
             mixer->playing=true;
             if(!ma_device_is_started(&device) && ma_device_start(&device)!=MA_SUCCESS){mixer->playing=false;closeAudio();error(L"No se pudo iniciar el audio. Actualiza y selecciona la salida de nuevo.");}break;
@@ -1084,7 +1097,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
         cls.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
         cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=theme::bg();
         RegisterClassW(&cls);RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT rect{0,0,std::min(1280,int(work.right-work.left)-20),std::min(800,int(work.bottom-work.top)-90)};AdjustWindowRect(&rect,WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,FALSE);
-        HWND h=CreateWindowW(cls.lpszClassName,L"Dub Machine Mix — Windows alpha 0.8.0",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        HWND h=CreateWindowW(cls.lpszClassName,L"Dub Machine Mix — Windows alpha 0.8.1",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
             CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
         if(!h){ma_context_uninit(&context);return 1;}
         ShowWindow(h,show);UpdateWindow(h);

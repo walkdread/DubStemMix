@@ -1,8 +1,15 @@
-DUB MACHINE MIX — WINDOWS 0.8.0
+DUB MACHINE MIX — WINDOWS 0.8.1
 
 Extrae TODO el ZIP. Abre DubMachineMix.exe. Conserva DLLs y carpeta fonts.
 Antes llamado DubStemMix. Conserva su carpeta de datos para recuperar tus modelos,
 stems y preferencias. No necesitas volver a analizar canciones preparadas.
+
+CORRECCION 0.8.1
+- Cambiar o recargar canciones mantiene sirena HOLD/RISE, Syndrum HIT/ROLL
+  y las colas de Delay, Reverb y Echo. El dispositivo de audio no se detiene.
+- HIT conserva la caida natural del golpe; no se convierte en sonido infinito.
+  Usa ROLL para golpes repetidos. Soltar botones MIDI conserva su funcion.
+- PANIC y Reiniciar siguen apagando los instrumentos.
 
 NOVEDADES 0.8.0
 - Al finalizar una pista se reproduce la siguiente preparada segun el orden de la
