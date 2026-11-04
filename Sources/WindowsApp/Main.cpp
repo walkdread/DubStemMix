@@ -175,7 +175,7 @@ bool openAudio() {
         cfg.capture.pDeviceID=&inputIds[selectedInput];cfg.capture.format=ma_format_f32;cfg.capture.channels=2;cfg.capture.shareMode=ma_share_mode_shared;}
     cfg.playback.shareMode=ma_share_mode_shared;
     cfg.dataCallback=audioCallback;cfg.pUserData=mixer.get();
-    if(ma_device_init(&context,&cfg,&device)!=MA_SUCCESS){error(L"No se pudo abrir esa salida. Conecta la interfaz y pulsa Actualizar audio.");return false;}
+    if(ma_device_init(&context,&cfg,&device)!=MA_SUCCESS){error(liveSource?L"No se pudo abrir la entrada/salida. Revisa los dispositivos, el permiso de microfono de Windows y Actualizar audio.":L"No se pudo abrir esa salida. Conecta la interfaz y pulsa Actualizar audio.");return false;}
     deviceReady=true; return true;
 }
 void updateAudioLabel(){
@@ -593,14 +593,14 @@ void pollPreparation(){
     pollWarm();
     if(loading && loadDone.load(std::memory_order_acquire)){
         if(loader.joinable())loader.join();loading=false;
-        if(!loadError.empty()){bandsMode=mixer->bandsMode;restoreFrame=0;syncModes();preparedStems={};preparedWaveform.clear();recordStemError(L"Carga: "+loadTitle+L"\nError: "+loadError);error(loadError.c_str());}
+        if(!loadError.empty()){bandsMode=mixer->bandsMode;restoreFrame=0;syncModes();saveLibrary();refreshLibrary();preparedStems={};preparedWaveform.clear();recordStemError(L"Carga: "+loadTitle+L"\nError: "+loadError);error(loadError.c_str());}
         else {stopAudio();mixer->reset();mixer->bandsMode=loadBandsMode;loadedBands=loadBandsMode;resetGestures();
             if(!loadedCache.empty()){dubwin::WarmAudio previous;previous.key=loadedCache;for(int t=0;t<4;++t)previous.stems[t]=std::move(mixer->strip[t].samples);previous.wave=std::move(waveform);warmCache.put(std::move(previous));}
             const wchar_t* titles[]={L"BATERIA",L"BAJO",L"OTROS",L"VOZ"};
             for(int t=0;t<6;++t){if(t<4)mixer->strip[t].samples=std::move(preparedStems[t]);else mixer->strip[t].samples.clear();
                 mixer->strip[t].mute=false;mixer->strip[t].solo=false;syncInstrumentUI(t);if(t<4){const wchar_t* ranges[]={L"< 80 Hz",L"80 - 250 Hz",L"250 - 3000 Hz",L"> 3000 Hz"};setText(names[t],loadBandsMode?ranges[t]:titles[t]);}}
             loadedSource=loadSource;loadedCache=loadCache;loadedFast=loadFast;syncModes();
-            if(restoreFrame){mixer->seek(restoreFrame);restoreFrame=0;}
+            if(restoreFrame){mixer->seek(restoreFrame);restoreFrame=0;ensureAudio();}
             for(auto& song:songs)if(song.source==loadedSource && song.fast==loadedFast)song.duration=double(mixer->totalFrames())/dubwin::rate;
             refreshLibrary();waveform=std::move(preparedWaveform);
             setText(songLabel,loadTitle.c_str());InvalidateRect(window,nullptr,FALSE);resetPickup();setProgress(L"Cancion cargada. Pulsa PLAY.");
