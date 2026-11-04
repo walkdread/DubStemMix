@@ -46,6 +46,10 @@ enum {
     DUB_DELAY_PINGPONG = 6, // 0 … 1: repeats alternate left / right (0 = plain stereo, as before)
     DUB_DELAY_HOLD = 7,     // ≥ 0.5: input closed, feedback at unity — the loop holds itself
     DUB_DELAY_DOUBLE = 8,   // ≥ 0.5: half the time, the repeats glide an octave up (×2 gesture, PRD § 14)
+    DUB_DELAY_HOLD_LEVEL = 12, // output gain while held, 0..2; feedback stays at unity
+    DUB_DELAY_SPEED_FACTOR = 13, // gesture factor, 0.5..4 (default 2)
+    DUB_DELAY_STOP_SECONDS = 14, // 0.05..5 seconds
+    DUB_DELAY_START_SECONDS = 15, // 0.05..5 seconds
     DUB_DELAY_STOP = 9,     // ≥ 0.5: tape stop — the tape brakes and the repeats fall to silence; < 0.5 it speeds up again
 };
 enum {
@@ -57,6 +61,7 @@ enum {
 };
 // The spring shares the plate's five parameters (same indices, same units), plus:
 enum {
+    DUB_SPRING_INTENSITY = 6, // crash excitation, 0..2 (default 1)
     DUB_SPRING_CRASH = 5,   // set to 1 to hit the spring; the kernel resets it to 0 once the crash has fired
 };
 enum {
@@ -122,7 +127,7 @@ enum {
                               // Reset to 0 by the effect once taken into account.
 };
 
-#define DUB_EFFECT_MAX_PARAMS 12
+#define DUB_EFFECT_MAX_PARAMS 16
 
 DubEffect *dub_effect_create(DubEffectKind kind);
 void dub_effect_destroy(DubEffect *effect);

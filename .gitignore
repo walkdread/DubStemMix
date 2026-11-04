@@ -5,3 +5,6 @@ dist/
 web/node_modules/
 web/dist/
 web/.astro/
+
+build-portable/
+build-windows/

@@ -85,7 +85,7 @@ static void spring_process(DubEffect *e, const float *inL, const float *inR, flo
         float kick = 0.0f;
         if (s->crashLeft > 0) {
             const float env = (float)s->crashLeft / (CRASH_SAMPLES * sr / 48000.0f);
-            kick = 2.5f * env * env * lcg(&s->noise);
+            kick = 2.5f * dub_clamp(dub_param(e,DUB_SPRING_INTENSITY),0.0f,2.0f) * env * env * lcg(&s->noise);
             s->crashLeft--;
         }
 
@@ -130,6 +130,7 @@ void dub_spring_install(DubEffect *e) {
     dub_effect_set(e, DUB_PLATE_LOW_CUT, 180.0f);
     dub_effect_set(e, DUB_PLATE_TONE, 6000.0f);
     dub_effect_set(e, DUB_SPRING_CRASH, 0.0f);
+    dub_effect_set(e, DUB_SPRING_INTENSITY, 1.0f);
     e->prepare = spring_prepare;
     e->process = spring_process;
 }

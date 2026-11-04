@@ -32,6 +32,7 @@ typedef struct {
     DubLine line[2];
     float delaySamples; // retard courant, lissé
     float feedback;     // feedback courant, lissé
+    float holdGain;
     float inputGain;    // smoothed: 1, or 0 while holding
     float pingPong;     // smoothed
     float lowCut[2][2]; // [canal][étage]
@@ -56,7 +57,7 @@ static void delay_prepare(DubEffect *e) {
     memset(s->highCut, 0, sizeof s->highCut);
     s->delaySamples = dub_param(e, DUB_DELAY_TIME) * (float)e->sampleRate;
     s->feedback = dub_param(e, DUB_DELAY_FEEDBACK);
-    s->inputGain = 1.0f;
+    s->inputGain = 1.0f; s->holdGain = 1.0f;
     s->pingPong = dub_param(e, DUB_DELAY_PINGPONG);
     s->wowPhase = s->flutterPhase = 0.0;
     s->tapeSpeed = 1.0f;
@@ -69,11 +70,11 @@ static void delay_process(DubEffect *e, const float *inL, const float *inR, floa
     const float *in[2] = { inL, inR };
     float *out[2] = { outL, outR };
 
-    const float doubled = dub_param(e, DUB_DELAY_DOUBLE) >= 0.5f ? 0.5f : 1.0f;
+    const float doubled = dub_param(e, DUB_DELAY_DOUBLE) >= 0.5f ? 1.0f / dub_clamp(dub_param(e, DUB_DELAY_SPEED_FACTOR), 0.5f, 4.0f) : 1.0f;
     const float targetDelay = dub_clamp(dub_param(e, DUB_DELAY_TIME), 0.02f, 3.5f) * doubled * sr;
     const int hold = dub_param(e, DUB_DELAY_HOLD) >= 0.5f;
     const int stopping = dub_param(e, DUB_DELAY_STOP) >= 0.5f;
-    const float brake = 1.0f / (TAPE_STOP_SECONDS * sr), restart = 1.0f / (TAPE_START_SECONDS * sr);
+    const float brake = 1.0f / (dub_clamp(dub_param(e,DUB_DELAY_STOP_SECONDS),0.05f,5.0f) * sr), restart = 1.0f / (dub_clamp(dub_param(e,DUB_DELAY_START_SECONDS),0.05f,5.0f) * sr);
     const float targetFeedback = hold ? 1.0f : dub_clamp(dub_param(e, DUB_DELAY_FEEDBACK), 0.0f, 1.15f);
     const float targetInput = hold ? 0.0f : 1.0f;
     const float targetPingPong = dub_clamp(dub_param(e, DUB_DELAY_PINGPONG), 0.0f, 1.0f);
@@ -98,6 +99,7 @@ static void delay_process(DubEffect *e, const float *inL, const float *inR, floa
     for (int n = 0; n < frames; n++) {
         s->delaySamples += (targetDelay - s->delaySamples) * glide;
         s->feedback += (targetFeedback - s->feedback) * smooth;
+        s->holdGain += ((hold ? dub_clamp(dub_param(e,DUB_DELAY_HOLD_LEVEL),0.0f,2.0f) : 1.0f) - s->holdGain) * smooth;
         s->inputGain += (targetInput - s->inputGain) * smooth;
         s->pingPong += (targetPingPong - s->pingPong) * smooth;
         if (stopping) {
@@ -153,7 +155,7 @@ static void delay_process(DubEffect *e, const float *inL, const float *inR, floa
                 x = dub_clamp(x, -1.0f, 1.0f); // held loop: no colouring, just a hard ceiling
             }
             dub_line_push(&s->line[c], x);
-            out[c][n] = headSum[c] * tapeGain;
+            out[c][n] = headSum[c] * tapeGain * s->holdGain;
         }
     }
 }
@@ -183,6 +185,10 @@ void dub_delay_install(DubEffect *e) {
     dub_effect_set(e, DUB_DELAY_HOLD, 0.0f);
     dub_effect_set(e, DUB_DELAY_DOUBLE, 0.0f);
     dub_effect_set(e, DUB_DELAY_STOP, 0.0f);
+    dub_effect_set(e,DUB_DELAY_HOLD_LEVEL,1);
+    dub_effect_set(e,DUB_DELAY_SPEED_FACTOR,2);
+    dub_effect_set(e,DUB_DELAY_STOP_SECONDS,TAPE_STOP_SECONDS);
+    dub_effect_set(e,DUB_DELAY_START_SECONDS,TAPE_START_SECONDS);
     e->state = s;
     e->prepare = delay_prepare;
     e->process = delay_process;
