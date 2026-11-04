@@ -382,11 +382,13 @@ void updateStatus() {
         static_cast<unsigned long long>(seconds/60),static_cast<unsigned long long>(seconds%60),mixer->peak.load()*100.0);
     if(!preparing.load())setText(status,buffer);
 }
+void updateSpeedButton(){wchar_t text[40];swprintf_s(text,L"x%.2f%s",.5f+3.5f*advancedValues[1],fxOn[1]?L" ON":L"");setText(fxButtons[1],text);}
 void resetGestures() {
     for(auto& row:instrumentOn)for(auto& on:row)on=false;
     for(int i=0;i<4;++i)fxOn[i]=false;
     mixer->releaseInstruments();mixer->setEffect(0,DUB_DELAY_HOLD,0);mixer->setEffect(0,DUB_DELAY_DOUBLE,0);mixer->setEffect(0,DUB_DELAY_STOP,0);
     const wchar_t* names[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP"};for(int i=0;i<4;++i)if(fxButtons[i])setText(fxButtons[i],names[i]);
+    updateSpeedButton();
     for(int t=4;t<6;++t)if(mutes[t])syncInstrumentUI(t);
 }
 bool ensureAudio() {
@@ -426,7 +428,7 @@ void effectAction(int action,bool on) {
     if(action==4){mixer->setEffect(1,DUB_SWITCH_SELECT,on?1:0);setText(fxButtons[4],on?L"SPRING":L"PLATE");}
     if(action==5){tapEcho();fxOn[5]=false;}
     const wchar_t* titles[]={L"HOLD",L"x2",L"CRASH",L"TAPE STOP"};
-    if(action<4){auto label=std::wstring(titles[action])+(fxOn[action]?L" ON":L"");setText(fxButtons[action],label.c_str());}
+    if(action<4){auto label=std::wstring(titles[action])+(fxOn[action]?L" ON":L"");setText(fxButtons[action],label.c_str());if(action==1)updateSpeedButton();}
 }
 void recordStemError(const std::wstring& details){
     lastStemError=details;
@@ -809,7 +811,7 @@ void applyAdvanced(int i,float v){
     advancedValues[i]=v;wchar_t label[80]{};
     switch(i){
     case 0:mixer->setEffect(0,DUB_DELAY_HOLD_LEVEL,v*2);swprintf_s(label,L"HOLD %.0f%%",v*200);break;
-    case 1:mixer->setEffect(0,DUB_DELAY_SPEED_FACTOR,.5f+3.5f*v);swprintf_s(label,L"VELOC. x%.2f",.5f+3.5f*v);break;
+    case 1:mixer->setEffect(0,DUB_DELAY_SPEED_FACTOR,.5f+3.5f*v);swprintf_s(label,L"VELOC. x%.2f",.5f+3.5f*v);updateSpeedButton();break;
     case 2:mixer->setCrashIntensity(v*2);swprintf_s(label,L"GOLPE %.0f%%",v*200);break;
     case 3:mixer->crashLevel=v*2;swprintf_s(label,L"VOLUMEN %.0f%%",v*200);break;
     case 4:mixer->setEffect(0,DUB_DELAY_STOP_SECONDS,.05f+4.95f*v);swprintf_s(label,L"FRENO %.2f s",.05f+4.95f*v);break;
@@ -883,7 +885,7 @@ void buildUI(){
     control(L"BUTTON",L"SOLO",WS_TABSTOP,1148,524,106,28,idClearSolo);
     masterSlider=dial(1159,566,66,144,idMaster,0.5f,true);
     status=control(L"STATIC",L"",SS_ENDELLIPSIS,240,782,1014,18);
-    refreshLibrary();enumerateAudio();connectMidi();
+    updateSpeedButton();refreshLibrary();enumerateAudio();connectMidi();
     for(int e=0;e<6;++e)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(fxDials[e]));
     for(int t=4;t<6;++t)for(int b=0;b<2;++b)SendMessageW(window,WM_HSCROLL,0,reinterpret_cast<LPARAM>(sends[t][b]));
     uiReady=true;relayout();SetTimer(window,1,100,nullptr);

@@ -29,7 +29,7 @@ inline void card(HDC dc,RECT r,COLORREF fill,COLORREF stroke){
 }
 inline void sidebar(HDC dc,RECT r){
     Gdiplus::Graphics g(dc);Gdiplus::LinearGradientBrush brush(Gdiplus::Point(r.left,r.top),Gdiplus::Point(r.left,r.bottom),color(RGB(38,38,24)),color(background));
-    g.FillRectangle(&brush,r.left,r.top,r.right-r.left,r.bottom-r.top);
+    g.FillRectangle(&brush,int(r.left),int(r.top),int(r.right-r.left),int(r.bottom-r.top));
 }
 inline void active(HWND h,bool on){if(bool(GetPropW(h,L"active"))!=on){SetPropW(h,L"active",reinterpret_cast<HANDLE>(INT_PTR(on)));InvalidateRect(h,nullptr,FALSE);}}
 struct Dial {HFONT font{};int value=0;bool fader=false,drag=false;int startY=0,startValue=0;};

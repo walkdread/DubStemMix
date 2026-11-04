@@ -31,7 +31,7 @@ class Mixer {
     DubEffect* crash = nullptr;
     float smoothCrash=0;
     unsigned crashQuiet=0; bool crashAwake=false;
-    std::atomic<bool> crashTrigger{false};
+    std::atomic<bool> crashTrigger{false},crashPanic{false};
     std::array<DubEffect*, 2> instruments{};
     float voice[2][quantum]{};
     uint64_t cursor = 0;
@@ -90,7 +90,7 @@ public:
     }
     void panic() noexcept {
         releaseInstruments();echo.panic();crashTrigger=false;
-        dub_effect_set(crash,DUB_EFFECT_CLEAR,1);
+        crashPanic=true;
         for (auto* e : instruments) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         for (auto* e : fx) if(e) dub_effect_set(e,DUB_EFFECT_CLEAR,1);
         setEffect(0,DUB_DELAY_HOLD,0); setEffect(0,DUB_DELAY_STOP,0); setEffect(0,DUB_DELAY_DOUBLE,0);
@@ -99,7 +99,7 @@ public:
     // UI thread, only after ma_device_stop has joined the audio callback.
     void reset() {
         crossover.reset();echo.reset();inputPeak=0;ended=false;
-        dub_effect_prepare(crash,rate);crashTrigger=false;crashAwake=false;crashQuiet=0;smoothCrash=0;
+        dub_effect_prepare(crash,rate);crashTrigger=false;crashPanic=false;crashAwake=false;crashQuiet=0;smoothCrash=0;
         releaseInstruments();
         for (auto* e : instruments) dub_effect_prepare(e,rate);
         playing.store(false); seekTarget.store(UINT64_MAX);seekFade=0;lastOutput[0]=lastOutput[1]=0; cursor = 0; position.store(0); peak.store(0);
@@ -164,6 +164,7 @@ public:
                     dry[0][i] += wet[0][i]*smoothReturn[b]; dry[1][i] += wet[1][i]*smoothReturn[b];
                 }
             }
+            if(crashPanic.exchange(false)&&crashAwake)dub_effect_set(crash,DUB_EFFECT_CLEAR,1);
             if(crashTrigger.exchange(false)){dub_effect_set(crash,DUB_SPRING_CRASH,1);crashAwake=true;crashQuiet=0;}
             if(crashAwake){
                 for(auto& c:voice)std::fill_n(c,n,0.f);
